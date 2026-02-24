@@ -1,0 +1,66 @@
+package app.slipnet.domain.repository
+
+import android.content.Context
+import app.slipnet.domain.model.ResolverScanResult
+import app.slipnet.domain.model.ScanMode
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * Repository for DNS resolver scanning operations
+ */
+interface ResolverScannerRepository {
+    /**
+     * Get the default list of resolver IPs to scan
+     */
+    fun getDefaultResolvers(): List<String>
+
+    /**
+     * Parse a text file content into a list of IP addresses
+     */
+    fun parseResolverList(content: String): List<String>
+
+    /**
+     * Generate random IPs from a country's CIDR ranges
+     * @param context Android context to access assets
+     * @param countryCode Country code (e.g. "ir", "cn", "ru")
+     * @param count Number of random IPs to generate
+     */
+    fun generateCountryRangeIps(context: Context, countryCode: String, count: Int): List<String>
+
+    /**
+     * Expand IP ranges into a full list of individual IP addresses
+     * @param ranges List of (startIpLong, endIpLong) pairs
+     * @return List of all IP address strings in the ranges
+     */
+    fun expandIpRanges(ranges: List<Pair<Long, Long>>): List<String>
+
+    /**
+     * Scan a single resolver for DNS connectivity
+     * @param host The IP address to scan
+     * @param port The DNS port (default 53)
+     * @param testDomain The domain to test resolution for
+     * @param timeoutMs Timeout in milliseconds
+     * @param scanMode The scanning mode (SIMPLE or DNS_TUNNEL)
+     */
+    suspend fun scanResolver(
+        host: String,
+        port: Int = 53,
+        testDomain: String,
+        timeoutMs: Long = 3000,
+        scanMode: ScanMode = ScanMode.SIMPLE
+    ): ResolverScanResult
+
+    /**
+     * Scan multiple resolvers concurrently
+     * Emits results as they complete
+     * @param scanMode The scanning mode (SIMPLE or DNS_TUNNEL)
+     */
+    fun scanResolvers(
+        hosts: List<String>,
+        port: Int = 53,
+        testDomain: String,
+        timeoutMs: Long = 3000,
+        concurrency: Int = 50,
+        scanMode: ScanMode = ScanMode.SIMPLE
+    ): Flow<ResolverScanResult>
+}
