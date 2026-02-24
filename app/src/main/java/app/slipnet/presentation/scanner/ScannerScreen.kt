@@ -23,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import app.slipnet.domain.model.ServerProfile
 import app.slipnet.domain.model.TunnelType
 import app.slipnet.tunnel.CdnScanner
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
