@@ -52,7 +52,16 @@ jobs:
           cd gomobile-build
           make build
           cd ..
+          # Makefile outputs golibs.aar, Gradle expects libcore.aar
+          if [ -f app/libs/golibs.aar ]; then
+            mv app/libs/golibs.aar app/libs/libcore.aar
+          fi
           ls -lh app/libs/
+          # Show package names inside AAR
+          mkdir -p /tmp/aar-check
+          unzip -o app/libs/libcore.aar classes.jar -d /tmp/aar-check 2>/dev/null || true
+          jar tf /tmp/aar-check/classes.jar 2>/dev/null | grep '\.class$' | head -20
+          rm -rf /tmp/aar-check
 
       - name: Fix hev-socks5-tunnel symlinks
         run: |
