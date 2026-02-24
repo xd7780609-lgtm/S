@@ -54,30 +54,36 @@ jobs:
           cd ..
           ls -lh app/libs/
 
-      # Fix fake symlinks in hev-socks5-tunnel submodule
       - name: Fix hev-socks5-tunnel symlinks
         run: |
-          echo "=== Fixing fake symlinks ==="
           find app/src/main/cpp/hev-socks5-tunnel-src -type f -size -200c | while read f; do
             content=$(cat "$f" 2>/dev/null)
-            # Check if file content looks like a relative path (starts with ../)
             if [[ "$content" == ../* && ! "$content" == *$'\n'* ]]; then
               dir=$(dirname "$f")
               target="$dir/$content"
               if [ -f "$target" ]; then
-                echo "Fixing: $f -> $content"
                 rm "$f"
                 ln -s "$content" "$f"
               fi
             fi
           done
-          echo "=== Done fixing symlinks ==="
+
+      - name: Fix file permissions
+        run: |
+          # Fix Python linker wrapper
+          find . -name "linker-wrapper.py" -exec chmod +x {} \;
+          # Fix any shell scripts
+          find . -name "*.sh" -exec chmod +x {} \;
+          # Fix Rust build scripts
+          chmod +x gradlew
+
+      - name: Install CMake for picoquic
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "cmake;3.22.1" --sdk_root="$ANDROID_HOME"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Grant execute permission
-        run: chmod +x gradlew
 
       - name: Setup OpenSSL for Android
         run: ./gradlew setupOpenSsl --stacktrace
