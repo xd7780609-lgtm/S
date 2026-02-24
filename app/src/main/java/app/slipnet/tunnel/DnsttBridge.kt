@@ -2,8 +2,8 @@ package app.slipnet.tunnel
 
 import android.net.VpnService
 import app.slipnet.util.AppLog as Log
-import mobile.Mobile
-import mobile.DnsttClient
+import libcore.Mobile
+import libcore.DnsttClient
 import java.lang.ref.WeakReference
 import java.net.ServerSocket
 

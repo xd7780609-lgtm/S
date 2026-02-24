@@ -2,8 +2,8 @@ package app.slipnet.tunnel
 
 import android.content.Context
 import app.slipnet.util.AppLog as Log
-import snowflake.Snowflake
-import snowflake.SnowflakeClient
+import libcore.Snowflake
+import libcore.SnowflakeClient
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader

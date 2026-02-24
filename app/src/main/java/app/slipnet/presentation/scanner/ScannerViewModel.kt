@@ -22,6 +22,7 @@ class ScannerViewModel @Inject constructor(
     private val connectionManager: VpnConnectionManager
 ) : ViewModel() {
 
+    // فقط پروفایل‌هایی که مخصوص اسکنر هستند رو نشون بده
     val scannerProfiles: StateFlow<List<ServerProfile>> = profileRepository.getAllProfiles()
         .map { profiles -> profiles.filter { it.isScannerProfile } }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
@@ -50,7 +51,8 @@ class ScannerViewModel @Inject constructor(
                 name = if (profile.name.isBlank()) "Scanner Config" else profile.name
             )
             viewModelScope.launch {
-                profileRepository.insertProfile(scannerProfile)
+                // اصلاح شده: استفاده از saveProfile به جای insertProfile
+                profileRepository.saveProfile(scannerProfile)
             }
             return true
         }
@@ -78,6 +80,7 @@ class ScannerViewModel @Inject constructor(
         }
     }
 
+    // منطق هوشمند: پینگ بگیر -> اگر بد بود اسکن کن -> وصل شو
     fun connectWithAutoScan(profile: ServerProfile) {
         viewModelScope.launch {
             _selectedProfile.value = profile
@@ -85,24 +88,38 @@ class ScannerViewModel @Inject constructor(
             val currentIp = getProfileAddress(profile)
             val port = getProfilePort(profile)
             val settings = _scannerSettings.value
-            val ranges = CdnScanner.loadRanges(context, settings.rangeSource)
+            
+            // ۱. تست پینگ آی‌پی فعلی
+            // اگر پینگ فعلی زیر MaxLatency باشه، نیازی به اسکن نیست
+            val isCurrentIpGood = CdnScanner.testCurrentIp(currentIp, port, settings.maxLatency)
 
-            val bestIp = CdnScanner.autoFindBestIp(
-                currentIp = currentIp,
-                port = port,
-                settings = settings.copy(customRanges = ranges),
-                scope = viewModelScope
-            )
-
-            if (bestIp != null) {
-                val updated = profile.copy(
-                    lastScannedIp = bestIp,
-                    lastScanTime = System.currentTimeMillis()
-                )
-                profileRepository.updateProfile(updated)
-                connectionManager.connect(updated)
-            } else {
+            if (isCurrentIpGood) {
+                // آی‌پی خوبه، مستقیم وصل شو
                 connectionManager.connect(profile)
+            } else {
+                // ۲. آی‌پی بده، شروع اسکن برای پیدا کردن آی‌پی تمیز
+                val ranges = CdnScanner.loadRanges(context, settings.rangeSource)
+
+                // تابع autoFindBestIp خودش اسکن میکنه و بهترین رو برمیگردونه
+                val newBestIp = CdnScanner.autoFindBestIp(
+                    currentIp = currentIp,
+                    port = port,
+                    settings = settings.copy(customRanges = ranges),
+                    scope = viewModelScope
+                )
+
+                if (newBestIp != null) {
+                    // آی‌پی جدید پیدا شد، پروفایل رو آپدیت کن و وصل شو
+                    val updated = profile.copy(
+                        lastScannedIp = newBestIp,
+                        lastScanTime = System.currentTimeMillis()
+                    )
+                    profileRepository.updateProfile(updated)
+                    connectionManager.connect(updated)
+                } else {
+                    // هیچ آی‌پی پیدا نشد، با همون قبلی زورکی وصل شو
+                    connectionManager.connect(profile)
+                }
             }
         }
     }
