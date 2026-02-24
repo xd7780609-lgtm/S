@@ -28,7 +28,8 @@ import app.slipnet.tunnel.CdnScanner
 @Composable
 fun ScannerScreen(
     viewModel: ScannerViewModel = hiltViewModel(),
-    onNavigateToImport: () -> Unit
+    onNavigateToImport: () -> Unit,
+    onNavigateBack: () -> Unit = {}
 ) {
     val profiles by viewModel.scannerProfiles.collectAsState()
     val scanState by viewModel.scanState.collectAsState()
@@ -43,6 +44,14 @@ fun ScannerScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Scanner Connection") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = { viewModel.showSettings() }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")

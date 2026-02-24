@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -52,16 +52,36 @@ jobs:
           cd gomobile-build
           make build
           cd ..
-          # Makefile outputs golibs.aar, Gradle expects libcore.aar
           if [ -f app/libs/golibs.aar ]; then
             mv app/libs/golibs.aar app/libs/libcore.aar
           fi
           ls -lh app/libs/
-          # Show package names inside AAR
           mkdir -p /tmp/aar-check
           unzip -o app/libs/libcore.aar classes.jar -d /tmp/aar-check 2>/dev/null || true
           jar tf /tmp/aar-check/classes.jar 2>/dev/null | grep '\.class$' | head -20
           rm -rf /tmp/aar-check
+
+      - name: Build sing-box binary
+        run: |
+          git clone --depth 1 --branch v1.11.0 https://github.com/SagerNet/sing-box.git /tmp/sing-box
+          cd /tmp/sing-box
+
+          mkdir -p $GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a
+          mkdir -p $GITHUB_WORKSPACE/app/src/main/jniLibs/armeabi-v7a
+
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build \
+            -trimpath -ldflags '-s -w' \
+            -tags 'with_quic,with_utls' \
+            -o $GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a/libsingbox.so \
+            ./cmd/sing-box
+
+          CGO_ENABLED=0 GOOS=android GOARCH=arm GOARM=7 go build \
+            -trimpath -ldflags '-s -w' \
+            -tags 'with_quic,with_utls' \
+            -o $GITHUB_WORKSPACE/app/src/main/jniLibs/armeabi-v7a/libsingbox.so \
+            ./cmd/sing-box
+
+          ls -lh $GITHUB_WORKSPACE/app/src/main/jniLibs/*/libsingbox.so
 
       - name: Fix hev-socks5-tunnel symlinks
         run: |
@@ -79,11 +99,8 @@ jobs:
 
       - name: Fix file permissions
         run: |
-          # Fix Python linker wrapper
           find . -name "linker-wrapper.py" -exec chmod +x {} \;
-          # Fix any shell scripts
           find . -name "*.sh" -exec chmod +x {} \;
-          # Fix Rust build scripts
           chmod +x gradlew
 
       - name: Install CMake for picoquic

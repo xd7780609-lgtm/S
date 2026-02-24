@@ -104,6 +104,7 @@ fun ProfileListItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
+                // Line 1: Name + status badge
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -112,7 +113,8 @@ fun ProfileListItem(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     if (isConnected) {
                         Spacer(modifier = Modifier.width(8.dp))
@@ -141,8 +143,31 @@ fun ProfileListItem(
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
+                }
 
-                    // Ping result badge
+                // Line 2: Subtitle + Ping (horizontal, right-aligned ping)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = when (profile.tunnelType) {
+                            TunnelType.DOH -> DOH_SERVERS.firstOrNull { it.url == profile.dohUrl }?.name
+                                ?: profile.dohUrl
+                            TunnelType.SSH -> "${profile.domain}:${profile.sshPort}"
+                            TunnelType.DNSTT_SSH -> "${profile.domain} via SSH"
+                            TunnelType.NAIVE_SSH -> "${profile.domain} via SlipGate"
+                            TunnelType.SNOWFLAKE -> "Tor Network"
+                            else -> profile.domain
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // Ping result badge (always visible, right-aligned)
                     when (pingResult) {
                         is PingResult.Pending -> {
                             Spacer(modifier = Modifier.width(8.dp))
@@ -163,6 +188,7 @@ fun ProfileListItem(
                                 text = "${pingResult.latencyMs}ms",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = latencyColor,
+                                fontWeight = FontWeight.Bold,
                                 modifier = Modifier
                                     .background(
                                         latencyColor.copy(alpha = 0.15f),
@@ -174,9 +200,10 @@ fun ProfileListItem(
                         is PingResult.Error -> {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = pingResult.message,
+                                text = pingResult.message.take(10),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = DisconnectedRed,
+                                maxLines = 1,
                                 modifier = Modifier
                                     .background(
                                         DisconnectedRed.copy(alpha = 0.15f),
@@ -189,24 +216,7 @@ fun ProfileListItem(
                     }
                 }
 
-                // Subtitle: server/domain info
-                Text(
-                    text = when (profile.tunnelType) {
-                        TunnelType.DOH -> DOH_SERVERS.firstOrNull { it.url == profile.dohUrl }?.name
-                            ?: profile.dohUrl
-                        TunnelType.SSH -> "${profile.domain}:${profile.sshPort}"
-                        TunnelType.DNSTT_SSH -> "${profile.domain} via SSH"
-                        TunnelType.NAIVE_SSH -> "${profile.domain} via SlipGate"
-                        TunnelType.SNOWFLAKE -> "Tor Network"
-                        else -> profile.domain
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                // Detail line: tunnel type
+                // Line 3: Tunnel type
                 Text(
                     text = when (profile.tunnelType) {
                         TunnelType.SNOWFLAKE -> EditProfileViewModel.detectBridgeType(profile.torBridgeLines).displayName
@@ -219,7 +229,7 @@ fun ProfileListItem(
                 )
             }
 
-            // Action buttons (compact)
+            // Action buttons
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -235,7 +245,6 @@ fun ProfileListItem(
                     )
                 }
 
-                // Export with submenu (Export file + Share QR Code)
                 Box {
                     IconButton(
                         onClick = { showExportMenu = true },

@@ -196,6 +196,9 @@ fun NavGraph(
             ScannerScreen(
                 onNavigateToImport = {
                     navController.navigate(NavRoutes.CdnScannerImport.route)
+                },
+                onNavigateBack = {
+                    navController.popBackStack()
                 }
             )
         }

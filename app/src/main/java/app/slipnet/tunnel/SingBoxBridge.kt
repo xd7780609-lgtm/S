@@ -8,21 +8,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.File
+import java.io.InputStreamReader
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Bridge to sing-box (libcore) for VLESS, Trojan, Hysteria2, Shadowsocks protocols.
- * Starts sing-box as a local SOCKS5 proxy, then tun2socks connects to it.
- *
- * Robust version: uses reflection for libcore APIs (start/stop/newSingBoxInstance).
+ * Bridge to sing-box for VLESS, Trojan, Hysteria2, Shadowsocks protocols.
+ * Runs sing-box as a subprocess (like Tor), providing a local SOCKS5 proxy.
  */
 object SingBoxBridge {
 
     private const val TAG = "SingBoxBridge"
 
     private val running = AtomicBoolean(false)
-    private val boxInstance = AtomicReference<Any?>(null)
+    private var singBoxProcess: Process? = null
 
     @Volatile
     var debugLogging = false
@@ -47,22 +47,76 @@ object SingBoxBridge {
             Log.i(TAG, "Starting sing-box on $listenHost:$listenPort (${profile.tunnelType.displayName})")
             if (debugLogging) Log.d(TAG, "Config:\n$configJson")
 
-            val instance = newSingBoxInstanceCompat(context, configJson)
-                ?: return@withContext Result.failure(IllegalStateException("libcore newSingBoxInstance not found"))
+            // Write config to file
+            val configDir = File(context.filesDir, "singbox")
+            configDir.mkdirs()
+            val configFile = File(configDir, "config.json")
+            configFile.writeText(configJson)
 
-            invokeNoArg(instance, "start", "run")
+            // Find sing-box binary
+            val binary = context.applicationInfo.nativeLibraryDir + "/libsingbox.so"
+            if (!File(binary).exists()) {
+                return@withContext Result.failure(RuntimeException(
+                    "sing-box binary not found. VLESS/Trojan/Hysteria2/Shadowsocks " +
+                    "requires sing-box to be bundled as libsingbox.so"
+                ))
+            }
 
-            boxInstance.set(instance)
-            currentPort = listenPort
-            running.set(true)
+            // Start sing-box process
+            val pb = ProcessBuilder(binary, "run", "-c", configFile.absolutePath, "-D", configDir.absolutePath)
+            pb.redirectErrorStream(true)
+            pb.environment()["HOME"] = configDir.absolutePath
+            val process = pb.start()
+            singBoxProcess = process
 
-            Log.i(TAG, "sing-box started successfully on port $listenPort")
-            Result.success(Unit)
+            // Monitor output
+            Thread({
+                try {
+                    val reader = BufferedReader(InputStreamReader(process.inputStream))
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        Log.d(TAG, "sing-box: $line")
+                    }
+                } catch (e: Exception) {
+                    if (singBoxProcess != null) {
+                        Log.w(TAG, "sing-box output reader error: ${e.message}")
+                    }
+                }
+            }, "singbox-output").also { it.isDaemon = true; it.start() }
+
+            // Wait for startup
+            Thread.sleep(1000)
+
+            if (!process.isAlive) {
+                singBoxProcess = null
+                return@withContext Result.failure(RuntimeException("sing-box exited immediately"))
+            }
+
+            // Verify SOCKS5 proxy is listening
+            if (verifyTcpListening(listenHost, listenPort)) {
+                running.set(true)
+                currentPort = listenPort
+                Log.i(TAG, "sing-box started successfully on port $listenPort")
+                Result.success(Unit)
+            } else {
+                Log.w(TAG, "sing-box process alive but port not yet listening, giving more time...")
+                Thread.sleep(1500)
+                if (process.isAlive && verifyTcpListening(listenHost, listenPort)) {
+                    running.set(true)
+                    currentPort = listenPort
+                    Log.i(TAG, "sing-box started successfully on port $listenPort (delayed)")
+                    Result.success(Unit)
+                } else {
+                    process.destroyForcibly()
+                    singBoxProcess = null
+                    Result.failure(RuntimeException("sing-box started but SOCKS5 port not listening"))
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start sing-box: ${e.message}", e)
             running.set(false)
             currentPort = 0
-            boxInstance.set(null)
+            singBoxProcess = null
             Result.failure(e)
         }
     }
@@ -71,23 +125,38 @@ object SingBoxBridge {
         if (!running.getAndSet(false)) return
 
         Log.i(TAG, "Stopping sing-box")
-        val instance = boxInstance.getAndSet(null)
         currentPort = 0
 
-        if (instance != null) {
+        val p = singBoxProcess
+        singBoxProcess = null
+        if (p != null) {
             try {
-                invokeNoArg(instance, "stop", "close", "shutdown")
+                p.destroy()
+                Thread.sleep(500)
+                if (p.isAlive) {
+                    p.destroyForcibly()
+                }
+                Log.i(TAG, "sing-box stopped")
             } catch (e: Exception) {
                 Log.e(TAG, "Error stopping sing-box: ${e.message}", e)
             }
         }
-
-        Log.i(TAG, "sing-box stopped")
     }
 
-    fun isRunning(): Boolean = running.get() && boxInstance.get() != null
+    fun isRunning(): Boolean = running.get() && singBoxProcess?.isAlive == true
 
     fun isClientHealthy(): Boolean = isRunning()
+
+    private fun verifyTcpListening(host: String, port: Int): Boolean {
+        return try {
+            java.net.Socket().use { socket ->
+                socket.connect(java.net.InetSocketAddress(host, port), 2000)
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     // ==================== build config ====================
 
@@ -339,55 +408,8 @@ object SingBoxBridge {
         }
     }
 
-    // ==================== libcore reflection ====================
-
-    private fun newSingBoxInstanceCompat(context: Context, configJson: String): Any? {
-        return try {
-            val cls = Class.forName("libcore.Libcore")
-            val receiver = runCatching { cls.getDeclaredField("INSTANCE").get(null) }.getOrNull()
-
-            val methods = cls.methods.filter { it.name == "newSingBoxInstance" || it.name == "newSingBox" }
-
-            for (m in methods) {
-                val p = m.parameterTypes
-                try {
-                    val obj = when (p.size) {
-                        1 -> if (p[0] == String::class.java) m.invoke(receiver, configJson) else null
-                        2 -> when {
-                            p[0].isAssignableFrom(context.javaClass) && p[1] == String::class.java ->
-                                m.invoke(receiver, context, configJson)
-                            p[0] == String::class.java && p[1] == String::class.java ->
-                                m.invoke(receiver, configJson, context.cacheDir.absolutePath)
-                            else -> null
-                        }
-                        3 -> when {
-                            p[0].isAssignableFrom(context.javaClass) && p[1] == String::class.java && p[2] == String::class.java ->
-                                m.invoke(receiver, context, configJson, context.cacheDir.absolutePath)
-                            else -> null
-                        }
-                        else -> null
-                    }
-                    if (obj != null) return obj
-                } catch (_: Exception) { }
-            }
-            null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun invokeNoArg(target: Any, vararg names: String) {
-        val m = target.javaClass.methods.firstOrNull { it.name in names && it.parameterTypes.isEmpty() }
-            ?: throw IllegalStateException("No method found: ${names.joinToString("/")}")
-        m.invoke(target)
-    }
-
     // ==================== URI Parsers ====================
 
-    /**
-     * Parse vless:// URI into ServerProfile fields.
-     * Format: vless://uuid@address:port?params#name
-     */
     fun parseVlessUri(uri: String): ServerProfile? {
         try {
             if (!uri.startsWith("vless://")) return null
@@ -437,10 +459,6 @@ object SingBoxBridge {
         }
     }
 
-    /**
-     * Parse trojan:// URI into ServerProfile fields.
-     * Format: trojan://password@address:port?params#name
-     */
     fun parseTrojanUri(uri: String): ServerProfile? {
         try {
             if (!uri.startsWith("trojan://")) return null
@@ -487,10 +505,6 @@ object SingBoxBridge {
         }
     }
 
-    /**
-     * Parse hysteria2:// or hy2:// URI into ServerProfile fields.
-     * Format: hysteria2://password@address:port?params#name
-     */
     fun parseHysteria2Uri(uri: String): ServerProfile? {
         try {
             val normalized = uri.replace("hy2://", "hysteria2://")
@@ -535,11 +549,6 @@ object SingBoxBridge {
         }
     }
 
-    /**
-     * Parse ss:// URI into ServerProfile fields.
-     * Format: ss://base64(method:password)@address:port#name
-     * Or: ss://base64(method:password@address:port)#name
-     */
     fun parseShadowsocksUri(uri: String): ServerProfile? {
         try {
             if (!uri.startsWith("ss://")) return null
@@ -559,7 +568,6 @@ object SingBoxBridge {
             val port: Int
 
             if (atIndex >= 0) {
-                // Format: base64(method:password)@host:port
                 val userInfo = try {
                     String(android.util.Base64.decode(mainPart.substring(0, atIndex), android.util.Base64.NO_WRAP))
                 } catch (e: Exception) {
@@ -575,7 +583,6 @@ object SingBoxBridge {
                 address = parsed.first
                 port = parsed.second
             } else {
-                // Format: base64(method:password@host:port)
                 val decoded = try {
                     String(android.util.Base64.decode(mainPart, android.util.Base64.NO_WRAP))
                 } catch (e: Exception) {
@@ -610,9 +617,6 @@ object SingBoxBridge {
         }
     }
 
-    /**
-     * Parse any supported proxy URI.
-     */
     fun parseProxyUri(uri: String): ServerProfile? {
         val trimmed = uri.trim()
         return when {
@@ -628,7 +632,6 @@ object SingBoxBridge {
 
     private fun parseHostPort(hostPort: String): Pair<String, Int> {
         return if (hostPort.startsWith("[")) {
-            // IPv6: [::1]:443
             val closeBracket = hostPort.indexOf(']')
             val host = hostPort.substring(1, closeBracket)
             val port = hostPort.substring(closeBracket + 2).toIntOrNull() ?: 443
