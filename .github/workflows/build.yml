@@ -12,39 +12,33 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      # ── Checkout ────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # ── JDK ─────────────────────────────────────────────────
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # ── Go (for gomobile → libcore.aar) ─────────────────────
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      # ── Rust (for slipstream cargo build) ───────────────────
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      # ── Android NDK ─────────────────────────────────────────
       - name: Install Android NDK
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
             "ndk;29.0.14206865" --sdk_root="$ANDROID_HOME"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
 
-      # ── Build libcore.aar (Go mobile: DNSTT + Snowflake) ────
       - name: Install gomobile
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
@@ -55,52 +49,42 @@ jobs:
       - name: Build libcore.aar
         run: |
           mkdir -p app/libs
-          if [ -d "gomobile-build" ]; then
-            echo "=== Building libcore.aar from gomobile-build/ ==="
-            cd gomobile-build
-            make build
-            cd ..
-          else
-            echo "ERROR: gomobile-build/ directory not found!"
-            exit 1
-          fi
+          cd gomobile-build
+          make build
+          cd ..
+          ls -lh app/libs/
 
-          # Verify the AAR was created
-          if [ ! -f "app/libs/libcore.aar" ]; then
-            echo "ERROR: libcore.aar was not created!"
-            echo "Checking for AAR files anywhere..."
-            find . -name "*.aar" -type f 2>/dev/null
-            exit 1
-          fi
+      # Fix fake symlinks in hev-socks5-tunnel submodule
+      - name: Fix hev-socks5-tunnel symlinks
+        run: |
+          echo "=== Fixing fake symlinks ==="
+          find app/src/main/cpp/hev-socks5-tunnel-src -type f -size -200c | while read f; do
+            content=$(cat "$f" 2>/dev/null)
+            # Check if file content looks like a relative path (starts with ../)
+            if [[ "$content" == ../* && ! "$content" == *$'\n'* ]]; then
+              dir=$(dirname "$f")
+              target="$dir/$content"
+              if [ -f "$target" ]; then
+                echo "Fixing: $f -> $content"
+                rm "$f"
+                ln -s "$content" "$f"
+              fi
+            fi
+          done
+          echo "=== Done fixing symlinks ==="
 
-          echo "✅ libcore.aar built successfully"
-          ls -lh app/libs/libcore.aar
-
-          # Debug: show Java package structure inside the AAR
-          echo "=== Java classes in libcore.aar ==="
-          mkdir -p /tmp/aar-inspect
-          unzip -o app/libs/libcore.aar classes.jar -d /tmp/aar-inspect 2>/dev/null || true
-          if [ -f /tmp/aar-inspect/classes.jar ]; then
-            jar tf /tmp/aar-inspect/classes.jar | grep '\.class$' | head -30
-          fi
-          rm -rf /tmp/aar-inspect
-
-      # ── Gradle setup ────────────────────────────────────────
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      # ── OpenSSL (for Rust/picoquic) ─────────────────────────
       - name: Setup OpenSSL for Android
         run: ./gradlew setupOpenSsl --stacktrace
 
-      # ── Build APK ───────────────────────────────────────────
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      # ── Upload artifacts ────────────────────────────────────
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
