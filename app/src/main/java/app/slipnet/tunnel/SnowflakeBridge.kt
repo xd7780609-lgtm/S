@@ -389,7 +389,8 @@ object SnowflakeBridge {
     }
 
     private fun stopLyrebird() {
-        lyrebirdProcess?.let { p ->
+        val p = lyrebirdProcess
+        if (p != null) {
             try {
                 Log.d(TAG, "Stopping lyrebird process...")
                 // Close stdin to signal graceful shutdown
@@ -436,7 +437,8 @@ object SnowflakeBridge {
      */
     fun stopClient() {
         // Stop Tor first
-        torProcess?.let { p ->
+        val p = torProcess
+        if (p != null) {
             try {
                 Log.d(TAG, "Stopping Tor process...")
                 p.destroy()
@@ -459,7 +461,8 @@ object SnowflakeBridge {
     }
 
     private fun stopSnowflakePt() {
-        client?.let { c ->
+        val c = client
+        if (c != null) {
             try {
                 Log.d(TAG, "Stopping Snowflake PT...")
                 c.stop()

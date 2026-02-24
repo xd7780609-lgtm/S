@@ -1,84 +1,109 @@
-name: Build Debug APK
+name: Build SlipNet
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
+  pull_request:
   workflow_dispatch:
-
-env:
-  OPENSSL_VERSION: "3.0.15"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout repo
+      # ── Checkout ────────────────────────────────────────────
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Restore native sources and libs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rsync
-          
-          # کلون کردن مخزن اصلی برای برداشتن فایل‌های AAR و C++
-          git clone --depth 1 https://github.com/anonvector/SlipNet.git upstream
-          
-          # کپی سورس‌های C++ و Rust
-          rm -rf app/src/main/cpp app/src/main/rust
-          rsync -av --links upstream/app/src/main/cpp/ app/src/main/cpp/
-          rsync -av --links upstream/app/src/main/rust/ app/src/main/rust/
-          
-          # کپی کردن کتابخانه‌های کامپایل شده (AAR) که حاوی کدهای Go هستند
-          mkdir -p app/libs
-          cp upstream/app/libs/*.aar app/libs/ 2>/dev/null || true
-          cp upstream/app/libs/*.jar app/libs/ 2>/dev/null || true
-          
-          rm -rf upstream
-
+      # ── JDK ─────────────────────────────────────────────────
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # ── Go (for gomobile → libcore.aar) ─────────────────────
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
 
-      - name: Install Android NDK
-        run: |
-          sdkmanager --install "ndk;29.0.14206865"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
-
-      - name: Install Rust
+      # ── Rust (for slipstream cargo build) ───────────────────
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk
-
-      - name: Cache OpenSSL
-        uses: actions/cache@v4
-        with:
-          path: ~/android-openssl
-          key: openssl-android-${{ env.OPENSSL_VERSION }}
-
-      - name: Build OpenSSL for Android
+      # ── Android NDK ─────────────────────────────────────────
+      - name: Install Android NDK
         run: |
-          chmod +x app/scripts/build-openssl-android.sh
-          OUTPUT_DIR=$HOME/android-openssl/android-ssl \
-          OPENSSL_VERSION=${{ env.OPENSSL_VERSION }} \
-          ./app/scripts/build-openssl-android.sh
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "ndk;29.0.14206865" --sdk_root="$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
 
+      # ── Build libcore.aar (Go mobile: DNSTT + Snowflake) ────
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+          gomobile init
+
+      - name: Build libcore.aar
+        run: |
+          mkdir -p app/libs
+          if [ -d "gomobile-build" ]; then
+            echo "=== Building libcore.aar from gomobile-build/ ==="
+            cd gomobile-build
+            make build
+            cd ..
+          else
+            echo "ERROR: gomobile-build/ directory not found!"
+            exit 1
+          fi
+
+          # Verify the AAR was created
+          if [ ! -f "app/libs/libcore.aar" ]; then
+            echo "ERROR: libcore.aar was not created!"
+            echo "Checking for AAR files anywhere..."
+            find . -name "*.aar" -type f 2>/dev/null
+            exit 1
+          fi
+
+          echo "✅ libcore.aar built successfully"
+          ls -lh app/libs/libcore.aar
+
+          # Debug: show Java package structure inside the AAR
+          echo "=== Java classes in libcore.aar ==="
+          mkdir -p /tmp/aar-inspect
+          unzip -o app/libs/libcore.aar classes.jar -d /tmp/aar-inspect 2>/dev/null || true
+          if [ -f /tmp/aar-inspect/classes.jar ]; then
+            jar tf /tmp/aar-inspect/classes.jar | grep '\.class$' | head -30
+          fi
+          rm -rf /tmp/aar-inspect
+
+      # ── Gradle setup ────────────────────────────────────────
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      # ── OpenSSL (for Rust/picoquic) ─────────────────────────
+      - name: Setup OpenSSL for Android
+        run: ./gradlew setupOpenSsl --stacktrace
+
+      # ── Build APK ───────────────────────────────────────────
       - name: Build Debug APK
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace --no-daemon
+        run: ./gradlew assembleDebug --stacktrace
 
-      - name: Upload APK
+      # ── Upload artifacts ────────────────────────────────────
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
+          name: SlipNet-debug-apks
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn

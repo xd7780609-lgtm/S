@@ -139,7 +139,85 @@ kotlin {
 val cargoHome = System.getenv("HOME") + "/.cargo"
 val cargoBin = "$cargoHome/bin"
 
+// =====================================================================
+// libcore.aar management — ensure the Go mobile library is available
+// =====================================================================
+val libcoreAarFile = file("libs/libcore.aar")
+
+tasks.register("ensureLibcore") {
+    group = "build setup"
+    description = "Ensures libcore.aar exists in app/libs/ (downloads or builds if missing)"
+
+    // Let Gradle know this task produces the AAR
+    outputs.file(libcoreAarFile)
+
+    onlyIf { !libcoreAarFile.exists() }
+
+    doLast {
+        libcoreAarFile.parentFile.mkdirs()
+
+        // Option 1: Download from URL provided via env or gradle property
+        //   CI example:  env LIBCORE_AAR_URL=https://github.com/.../libcore.aar
+        //   Local:       ./gradlew assembleDebug -PLIBCORE_AAR_URL=https://...
+        val downloadUrl: String? = System.getenv("LIBCORE_AAR_URL")
+            ?: (findProperty("LIBCORE_AAR_URL") as String?)
+
+        if (downloadUrl != null) {
+            println("⬇️  Downloading libcore.aar from: $downloadUrl")
+            try {
+                downloadFile(downloadUrl, libcoreAarFile)
+                println("✅ Downloaded libcore.aar (${libcoreAarFile.length() / 1024} KB)")
+                return@doLast
+            } catch (e: Exception) {
+                println("❌ Download failed: ${e.message}")
+                // Fall through to other options
+            }
+        }
+
+        // Option 2: Build from gomobile-build/ directory if present
+        val gomobileBuildDir = rootProject.file("gomobile-build")
+        val makefile = File(gomobileBuildDir, "Makefile")
+        if (gomobileBuildDir.exists() && makefile.exists()) {
+            println("🔨 Building libcore.aar from gomobile-build/ ...")
+            try {
+                exec {
+                    workingDir = gomobileBuildDir
+                    commandLine("make", "build")
+                }
+                if (libcoreAarFile.exists()) {
+                    println("✅ Built libcore.aar (${libcoreAarFile.length() / 1024} KB)")
+                    return@doLast
+                }
+            } catch (e: Exception) {
+                println("❌ gomobile build failed: ${e.message}")
+            }
+        }
+
+        // Nothing worked — fail with clear instructions
+        throw GradleException("""
+            |
+            | ❌ libcore.aar not found at: ${libcoreAarFile.absolutePath}
+            |
+            | This file contains the Go mobile libraries (DNSTT + Snowflake).
+            | Choose one of these options to fix:
+            |
+            |   1. Build it locally:
+            |      cd gomobile-build && make build
+            |
+            |   2. Download via URL (env variable):
+            |      export LIBCORE_AAR_URL=https://github.com/user/repo/releases/download/v1.0/libcore.aar
+            |      ./gradlew assembleDebug
+            |
+            |   3. Place it manually:
+            |      Copy libcore.aar to app/libs/libcore.aar
+            |
+        """.trimMargin())
+    }
+}
+
+// =====================================================================
 // Task to setup OpenSSL for Android
+// =====================================================================
 tasks.register("setupOpenSsl") {
     group = "build setup"
     description = "Downloads and sets up OpenSSL for Android if not present"
@@ -153,8 +231,8 @@ tasks.register("setupOpenSsl") {
         println("OpenSSL for Android not found. Setting up...")
 
         val downloadUrl = "https://github.com/passy/build-openssl-android/releases/download/v${opensslVersion}/openssl-${opensslVersion}-android.zip"
-        val tempZip = file("${buildDir}/tmp/openssl-android.zip")
-        val extractDir = file("${buildDir}/tmp/openssl-extract")
+        val tempZip = file("${layout.buildDirectory.get()}/tmp/openssl-android.zip")
+        val extractDir = file("${layout.buildDirectory.get()}/tmp/openssl-extract")
 
         // Create directories
         tempZip.parentFile.mkdirs()
@@ -217,6 +295,7 @@ tasks.register("setupOpenSsl") {
 }
 
 fun downloadFile(url: String, destination: File) {
+    @Suppress("DEPRECATION")
     URL(url).openStream().use { input ->
         FileOutputStream(destination).use { output ->
             input.copyTo(output)
@@ -345,7 +424,7 @@ cargo {
     }
 }
 
-// Make cargo build tasks depend on OpenSSL verification
+// Wire up task dependencies
 tasks.whenTaskAdded {
     when (name) {
         "cargoBuildArm", "cargoBuildArm64", "cargoBuildX86", "cargoBuildX86_64" -> {
@@ -355,6 +434,10 @@ tasks.whenTaskAdded {
             dependsOn("cargoBuild")
             // Track Rust JNI output without adding a second source set (avoids duplicate resources).
             inputs.dir(layout.buildDirectory.dir("rustJniLibs/android"))
+        }
+        // Ensure libcore.aar exists before any build starts
+        "preBuild" -> {
+            dependsOn("ensureLibcore")
         }
     }
 }
@@ -409,7 +492,7 @@ dependencies {
     implementation("androidx.hilt:hilt-navigation-compose:1.3.0")
 
     // Room
-    implementation( "androidx.room:room-runtime:2.8.4")
+    implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")
     kapt("androidx.room:room-compiler:2.8.4")
 
