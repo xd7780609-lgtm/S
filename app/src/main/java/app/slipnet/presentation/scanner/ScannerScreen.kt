@@ -47,7 +47,7 @@ fun ScannerScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            Icons.Default.ArrowBack,
                             contentDescription = "Back"
                         )
                     }
