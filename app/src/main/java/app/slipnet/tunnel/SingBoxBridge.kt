@@ -200,6 +200,8 @@ object SingBoxBridge {
 
     // ==================== Config ====================
 
+    // ==================== Config ====================
+
     private fun buildConfig(profile: ServerProfile, listenPort: Int, listenHost: String): String {
         val config = JSONObject()
 
@@ -207,6 +209,25 @@ object SingBoxBridge {
         config.put("log", JSONObject().apply {
             put("level", if (debugLogging) "debug" else "info")
             put("timestamp", true)
+        })
+
+        // DNS داخلی: DoH روی گوگل از داخل تونل
+        config.put("dns", JSONObject().apply {
+            put("servers", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("tag", "remote")
+                    put("address", "https://dns.google/dns-query")
+                    put("detour", "proxy")
+                })
+                put(JSONObject().apply {
+                    put("tag", "local")
+                    put("address", "local")
+                    put("detour", "direct")
+                })
+            })
+            put("final", "remote")
+            put("independent_cache", true)
+            put("strategy", "prefer_ipv4")
         })
 
         // فقط یک inbound به صورت SOCKS5 روی لوکال
@@ -229,22 +250,33 @@ object SingBoxBridge {
             else -> throw IllegalArgumentException("Unsupported: ${profile.tunnelType}")
         }
 
-        // فقط دو outbound: proxy و direct
+        // outbound ها: proxy اصلی، direct، و dns-out
         config.put("outbounds", JSONArray().apply {
             put(outbound)
             put(JSONObject().apply {
                 put("type", "direct")
                 put("tag", "direct")
             })
+            put(JSONObject().apply {
+                put("type", "dns")
+                put("tag", "dns-out")
+            })
         })
 
-        // تمام ترافیک (شامل DNS) به صورت پیش‌فرض از proxy عبور می‌کند
+        // تمام ترافیک DNS (TCP/UDP) بره به dns-out، بقیه به proxy
         config.put("route", JSONObject().apply {
+            put("rules", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("protocol", "dns")
+                    put("outbound", "dns-out")
+                })
+            })
             put("final", "proxy")
         })
 
         return config.toString(2)
     }
+
 
 
     private fun buildVlessOutbound(profile: ServerProfile): JSONObject {
@@ -278,7 +310,7 @@ object SingBoxBridge {
             }
 
             if (profile.vlessNetwork != "tcp") {
-                put("transport", buildTransport(profile.vlessNetwork, profile.vlessWsPath, profile.vlessWsHost, profile.vlessGrpcServiceName))
+                put("transport", buildTransport(profile.vlessNetwork, profile.vlessWsPath.ifBlank { "/" }, profile.vlessWsHost.ifBlank { profile.vlessSni.ifBlank { profile.vlessAddress } }, profile.vlessGrpcServiceName))
             }
             if (profile.proxyMux) put("multiplex", buildMux(profile))
         }
@@ -304,7 +336,7 @@ object SingBoxBridge {
                 }
             })
             if (profile.trojanNetwork != "tcp") {
-                put("transport", buildTransport(profile.trojanNetwork, profile.trojanWsPath, profile.trojanWsHost, profile.trojanGrpcServiceName))
+                put("transport", buildTransport(profile.trojanNetwork, profile.trojanWsPath.ifBlank { "/" }, profile.trojanWsHost.ifBlank { profile.trojanSni.ifBlank { profile.trojanAddress } }, profile.trojanGrpcServiceName))
             }
             if (profile.proxyMux) put("multiplex", buildMux(profile))
         }
@@ -354,9 +386,7 @@ object SingBoxBridge {
                     put("type", "ws")
                     if (wsPath.isNotBlank()) put("path", wsPath)
                     if (wsHost.isNotBlank()) put("headers", JSONObject().apply { put("Host", wsHost) })
-                    put("max_early_data", 2048)
-                    put("early_data_header_name", "Sec-WebSocket-Protocol")
-                }
+                                    }
                 "grpc" -> {
                     put("type", "grpc")
                     if (grpcServiceName.isNotBlank()) put("service_name", grpcServiceName)
