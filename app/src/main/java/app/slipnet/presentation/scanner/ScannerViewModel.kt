@@ -11,8 +11,13 @@ import app.slipnet.tunnel.CdnScanner
 import app.slipnet.tunnel.SingBoxBridge
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltViewModel
@@ -59,6 +64,37 @@ class ScannerViewModel @Inject constructor(
             return true
         }
         return false
+    }
+
+    suspend fun importSubscription(url: String): Pair<Int, Int> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .build()
+
+                val request = Request.Builder().url(url).build()
+                val response = client.newCall(request).execute()
+
+                if (!response.isSuccessful) return@withContext Pair(0, 1)
+                val body = response.body?.string() ?: return@withContext Pair(0, 1)
+
+                val profiles = SingBoxBridge.parseSingBoxConfig(body)
+                var success = 0
+                var fail = 0
+
+                for (profile in profiles) {
+                    try {
+                        profileRepository.saveProfile(profile)
+                        success++
+                    } catch (e: Exception) { fail++ }
+                }
+                Pair(success, fail)
+            } catch (e: Exception) {
+                Pair(0, 1)
+            }
+        }
     }
 
     fun startScan(profile: ServerProfile) {

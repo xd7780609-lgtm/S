@@ -219,6 +219,26 @@ fun EditProfileScreen(
                             )
                         }
                     }
+
+                    // Editable server address & port
+                    OutlinedTextField(
+                        value = uiState.singBoxAddress,
+                        onValueChange = { viewModel.updateSingBoxAddress(it) },
+                        label = { Text("Server Address") },
+                        placeholder = { Text("IP address or domain") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = uiState.singBoxPort,
+                        onValueChange = { viewModel.updateSingBoxPort(it) },
+                        label = { Text("Server Port") },
+                        placeholder = { Text("443") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 // Domain / SSH Server (hidden for DOH, Snowflake, and sing-box profiles)

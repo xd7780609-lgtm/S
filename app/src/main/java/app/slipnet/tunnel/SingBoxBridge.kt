@@ -197,7 +197,7 @@ object SingBoxBridge {
             put("servers", JSONArray().apply {
                 put(JSONObject().apply {
                     put("tag", "remote")
-                    put("address", "1.1.1.1")
+                    put("address", "tcp://8.8.8.8")
                     put("detour", "proxy")
                 })
                 put(JSONObject().apply {
@@ -399,6 +399,149 @@ object SingBoxBridge {
             put("max_connections", profile.muxMaxConnections)
             put("padding", true)
         }
+    }
+
+    // ==================== Subscription Parser ====================
+
+    fun parseSingBoxConfig(json: String): List<ServerProfile> {
+        val profiles = mutableListOf<ServerProfile>()
+        try {
+            val config = JSONObject(json)
+            val outbounds = config.optJSONArray("outbounds") ?: return profiles
+
+            for (i in 0 until outbounds.length()) {
+                val ob = outbounds.getJSONObject(i)
+                val type = ob.optString("type", "")
+                val profile = when (type) {
+                    "vless" -> parseVlessJson(ob)
+                    "trojan" -> parseTrojanJson(ob)
+                    "hysteria2" -> parseHysteria2Json(ob)
+                    "shadowsocks" -> parseShadowsocksJson(ob)
+                    else -> null
+                }
+                if (profile != null) profiles.add(profile)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Parse sing-box config failed: ${e.message}")
+        }
+        return profiles
+    }
+
+    private fun parseVlessJson(ob: JSONObject): ServerProfile? {
+        try {
+            val server = ob.optString("server", "")
+            val uuid = ob.optString("uuid", "")
+            if (server.isBlank() || uuid.isBlank()) return null
+
+            val tls = ob.optJSONObject("tls")
+            val tlsEnabled = tls?.optBoolean("enabled", false) ?: false
+            val sni = tls?.optString("server_name", "") ?: ""
+            val fingerprint = tls?.optJSONObject("utls")?.optString("fingerprint", "chrome") ?: "chrome"
+            val reality = tls?.optJSONObject("reality")
+
+            val security = when {
+                reality != null && reality.optBoolean("enabled", false) -> "reality"
+                tlsEnabled -> "tls"
+                else -> "none"
+            }
+
+            val transport = ob.optJSONObject("transport")
+            val network = transport?.optString("type", "tcp") ?: "tcp"
+            var wsPath = transport?.optString("path", "") ?: ""
+            val wsHost = transport?.optJSONObject("headers")?.optString("Host", "") ?: ""
+            val grpcServiceName = transport?.optString("service_name", "") ?: ""
+            val maxEarlyData = transport?.optInt("max_early_data", 0) ?: 0
+            if (maxEarlyData > 0 && !wsPath.contains("?ed=")) {
+                wsPath = "$wsPath?ed=$maxEarlyData"
+            }
+
+            return ServerProfile(
+                name = ob.optString("tag", "VLESS"),
+                tunnelType = TunnelType.VLESS,
+                vlessUuid = uuid, vlessAddress = server,
+                vlessPort = ob.optInt("server_port", 443),
+                vlessSecurity = security, vlessSni = sni,
+                vlessFingerprint = fingerprint, vlessNetwork = network,
+                vlessWsPath = wsPath, vlessWsHost = wsHost,
+                vlessGrpcServiceName = grpcServiceName,
+                vlessRealityPublicKey = reality?.optString("public_key", "") ?: "",
+                vlessRealityShortId = reality?.optString("short_id", "") ?: "",
+                domain = server
+            )
+        } catch (e: Exception) { return null }
+    }
+
+    private fun parseTrojanJson(ob: JSONObject): ServerProfile? {
+        try {
+            val server = ob.optString("server", "")
+            val password = ob.optString("password", "")
+            if (server.isBlank() || password.isBlank()) return null
+
+            val tls = ob.optJSONObject("tls")
+            val sni = tls?.optString("server_name", "") ?: ""
+            val fingerprint = tls?.optJSONObject("utls")?.optString("fingerprint", "chrome") ?: "chrome"
+            val insecure = tls?.optBoolean("insecure", false) ?: false
+
+            val transport = ob.optJSONObject("transport")
+            val network = transport?.optString("type", "tcp") ?: "tcp"
+            var wsPath = transport?.optString("path", "") ?: ""
+            val wsHost = transport?.optJSONObject("headers")?.optString("Host", "") ?: ""
+            val maxEarlyData = transport?.optInt("max_early_data", 0) ?: 0
+            if (maxEarlyData > 0 && !wsPath.contains("?ed=")) wsPath = "$wsPath?ed=$maxEarlyData"
+
+            return ServerProfile(
+                name = ob.optString("tag", "Trojan"),
+                tunnelType = TunnelType.TROJAN,
+                trojanPassword = password, trojanAddress = server,
+                trojanPort = ob.optInt("server_port", 443),
+                trojanSni = sni, trojanFingerprint = fingerprint,
+                trojanNetwork = network, trojanWsPath = wsPath, trojanWsHost = wsHost,
+                trojanAllowInsecure = insecure, domain = server
+            )
+        } catch (e: Exception) { return null }
+    }
+
+    private fun parseHysteria2Json(ob: JSONObject): ServerProfile? {
+        try {
+            val server = ob.optString("server", "")
+            val password = ob.optString("password", "")
+            if (server.isBlank()) return null
+
+            val tls = ob.optJSONObject("tls")
+            val sni = tls?.optString("server_name", "") ?: ""
+            val insecure = tls?.optBoolean("insecure", false) ?: false
+            val obfs = ob.optJSONObject("obfs")
+
+            return ServerProfile(
+                name = ob.optString("tag", "Hysteria2"),
+                tunnelType = TunnelType.HYSTERIA2,
+                hy2Password = password, hy2Address = server,
+                hy2Port = ob.optInt("server_port", 443),
+                hy2Sni = sni, hy2AllowInsecure = insecure,
+                hy2Obfs = obfs?.optString("type", "") ?: "",
+                hy2ObfsPassword = obfs?.optString("password", "") ?: "",
+                hy2UpMbps = ob.optInt("up_mbps", 100),
+                hy2DownMbps = ob.optInt("down_mbps", 100),
+                domain = server
+            )
+        } catch (e: Exception) { return null }
+    }
+
+    private fun parseShadowsocksJson(ob: JSONObject): ServerProfile? {
+        try {
+            val server = ob.optString("server", "")
+            val method = ob.optString("method", "")
+            val password = ob.optString("password", "")
+            if (server.isBlank()) return null
+
+            return ServerProfile(
+                name = ob.optString("tag", "SS"),
+                tunnelType = TunnelType.SHADOWSOCKS,
+                ssAddress = server, ssPort = ob.optInt("server_port", 443),
+                ssMethod = method, ssPassword = password,
+                domain = server
+            )
+        } catch (e: Exception) { return null }
     }
 
     // ==================== URI Parsers ====================

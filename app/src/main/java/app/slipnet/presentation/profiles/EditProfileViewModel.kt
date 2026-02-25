@@ -118,6 +118,8 @@ data class EditProfileUiState(
     val sortOrder: Int = 0,
     // ── sing-box specific display info ──
     val singBoxServerInfo: String = "",
+    val singBoxAddress: String = "",
+    val singBoxPort: String = "443",
 ) {
     val useSsh: Boolean
         get() = tunnelType == TunnelType.SSH || tunnelType == TunnelType.DNSTT_SSH || tunnelType == TunnelType.SLIPSTREAM_SSH || tunnelType == TunnelType.NAIVE_SSH
@@ -237,6 +239,20 @@ class EditProfileViewModel @Inject constructor(
                     naivePassword = profile.naivePassword,
                     sortOrder = profile.sortOrder,
                     singBoxServerInfo = singBoxInfo,
+                    singBoxAddress = when (profile.tunnelType) {
+                        TunnelType.VLESS -> profile.vlessAddress
+                        TunnelType.TROJAN -> profile.trojanAddress
+                        TunnelType.HYSTERIA2 -> profile.hy2Address
+                        TunnelType.SHADOWSOCKS -> profile.ssAddress
+                        else -> ""
+                    },
+                    singBoxPort = when (profile.tunnelType) {
+                        TunnelType.VLESS -> profile.vlessPort.toString()
+                        TunnelType.TROJAN -> profile.trojanPort.toString()
+                        TunnelType.HYSTERIA2 -> profile.hy2Port.toString()
+                        TunnelType.SHADOWSOCKS -> profile.ssPort.toString()
+                        else -> "443"
+                    },
                     isLoading = false
                 )
             } else {
@@ -246,6 +262,14 @@ class EditProfileViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun updateSingBoxAddress(address: String) {
+        _uiState.value = _uiState.value.copy(singBoxAddress = address)
+    }
+
+    fun updateSingBoxPort(port: String) {
+        _uiState.value = _uiState.value.copy(singBoxPort = port)
     }
 
     fun updateName(name: String) {
@@ -841,60 +865,93 @@ class EditProfileViewModel @Inject constructor(
 
 
     fun save() {
-        val state = _uiState.value
+    val state = _uiState.value
 
-        var hasError = false
+    var hasError = false
 
-        if (state.name.isBlank()) {
-            _uiState.value = _uiState.value.copy(nameError = "Name is required")
-            hasError = true
-        }
+    if (state.name.isBlank()) {
+        _uiState.value = _uiState.value.copy(nameError = "Name is required")
+        hasError = true
+    }
 
-        // ✅ Skip domain/resolver validation for sing-box protocols
-        if (state.isSingBox) {
-            // For sing-box, only name is required - server info comes from original profile
-            if (hasError) return
+    // ✅ Skip domain/resolver validation for sing-box protocols
+    if (state.isSingBox) {
+        // For sing-box, only name is required - server info comes from original profile
+        if (hasError) return
 
-            viewModelScope.launch {
-                _uiState.value = _uiState.value.copy(isSaving = true)
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isSaving = true)
 
-                try {
-                    // Use original profile and just update the name
-                    val original = originalProfile
-                    if (original == null) {
-                        _uiState.value = _uiState.value.copy(
-                            isSaving = false,
-                            error = "Original profile not found"
-                        )
-                        return@launch
-                    }
+            try {
+                // Use original profile and just update the name
+                val original = originalProfile
+                if (original == null) {
+                    _uiState.value = _uiState.value.copy(
+                        isSaving = false,
+                        error = "Original profile not found"
+                    )
+                    return@launch
+                }
 
-                    val profile = original.copy(
+                val newAddress = state.singBoxAddress.trim()
+                val newPort = state.singBoxPort.toIntOrNull() ?: 443
+
+                val profile = when (original.tunnelType) {
+                    TunnelType.VLESS -> original.copy(
+                        name = state.name.trim(),
+                        vlessAddress = newAddress,
+                        vlessPort = newPort,
+                        domain = newAddress,
+                        sortOrder = state.sortOrder
+                    )
+                    TunnelType.TROJAN -> original.copy(
+                        name = state.name.trim(),
+                        trojanAddress = newAddress,
+                        trojanPort = newPort,
+                        domain = newAddress,
+                        sortOrder = state.sortOrder
+                    )
+                    TunnelType.HYSTERIA2 -> original.copy(
+                        name = state.name.trim(),
+                        hy2Address = newAddress,
+                        hy2Port = newPort,
+                        domain = newAddress,
+                        sortOrder = state.sortOrder
+                    )
+                    TunnelType.SHADOWSOCKS -> original.copy(
+                        name = state.name.trim(),
+                        ssAddress = newAddress,
+                        ssPort = newPort,
+                        domain = newAddress,
+                        sortOrder = state.sortOrder
+                    )
+                    else -> original.copy(
                         name = state.name.trim(),
                         sortOrder = state.sortOrder
                     )
-
-                    val savedId = saveProfileUseCase(profile)
-                    setActiveProfileUseCase(savedId)
-
-                    val connState = connectionManager.connectionState.value
-                    val isVpnActive = connState is ConnectionState.Connected ||
-                            connState is ConnectionState.Connecting
-
-                    _uiState.value = _uiState.value.copy(
-                        isSaving = false,
-                        saveSuccess = true,
-                        showRestartVpnMessage = isVpnActive
-                    )
-                } catch (e: Exception) {
-                    _uiState.value = _uiState.value.copy(
-                        isSaving = false,
-                        error = e.message ?: "Failed to save profile"
-                    )
                 }
+
+                val savedId = saveProfileUseCase(profile)
+                setActiveProfileUseCase(savedId)
+
+                val connState = connectionManager.connectionState.value
+                val isVpnActive = connState is ConnectionState.Connected ||
+                        connState is ConnectionState.Connecting
+
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    saveSuccess = true,
+                    showRestartVpnMessage = isVpnActive
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = e.message ?: "Failed to save profile"
+                )
             }
-            return
         }
+        return
+    }
 
         // Non-sing-box validation continues as before...
         if (state.tunnelType != TunnelType.DOH && state.tunnelType != TunnelType.SNOWFLAKE && state.domain.isBlank()) {
