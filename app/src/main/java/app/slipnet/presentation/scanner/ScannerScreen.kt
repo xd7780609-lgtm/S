@@ -2,11 +2,9 @@ package app.slipnet.presentation.scanner
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -23,7 +21,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import app.slipnet.domain.model.ServerProfile
 import app.slipnet.domain.model.TunnelType
 import app.slipnet.tunnel.CdnScanner
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,21 +47,23 @@ fun ScannerScreen(
                 title = { Text("Scanner Connection") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "Back"
-                        )
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.showSettings() }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
-                    IconButton(onClick = onNavigateToImport) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Config")
-                    }
                 }
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onNavigateToImport,
+                containerColor = MaterialTheme.colorScheme.primary
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Config")
+            }
         }
     ) { paddingValues ->
         Column(
@@ -69,63 +71,34 @@ fun ScannerScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Scan progress indicator
+            // Scan progress
             AnimatedVisibility(visible = scanState.isScanning) {
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Scanning...",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text("Scanning...", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             IconButton(onClick = { viewModel.stopScan() }) {
                                 Icon(Icons.Default.Close, contentDescription = "Stop")
                             }
                         }
-
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        LinearProgressIndicator(
-                            progress = { scanState.progress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-
+                        LinearProgressIndicator(progress = { scanState.progress }, modifier = Modifier.fillMaxWidth())
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = scanState.statusMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-
+                        Text(scanState.statusMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                         Text(
                             text = when (scanState.phase) {
-                                CdnScanner.ScanPhase.RANGE_DISCOVERY ->
-                                    "Ranges: ${scanState.scannedRanges}/${scanState.totalRanges} | Responsive: ${scanState.responsiveRanges} | Time: ${scanState.elapsedMs / 1000}s"
-
-                                CdnScanner.ScanPhase.DEEP_SCAN ->
-                                    "IPs: ${scanState.scannedIps}/${scanState.totalIps} | Found: ${scanState.foundCount} | Time: ${scanState.elapsedMs / 1000}s"
-
-                                CdnScanner.ScanPhase.TESTING_CURRENT ->
-                                    "Testing current IP... | Time: ${scanState.elapsedMs / 1000}s"
-
-                                else ->
-                                    "Found: ${scanState.foundCount} | Time: ${scanState.elapsedMs / 1000}s"
-                            },
+                                CdnScanner.ScanPhase.RANGE_DISCOVERY -> "Ranges: ${scanState.scannedRanges}/${scanState.totalRanges} | Responsive: ${scanState.responsiveRanges}"
+                                CdnScanner.ScanPhase.DEEP_SCAN -> "IPs: ${scanState.scannedIps}/${scanState.totalIps} | Found: ${scanState.foundCount}"
+                                CdnScanner.ScanPhase.TESTING_CURRENT -> "Testing current IP..."
+                                else -> "Found: ${scanState.foundCount}"
+                            } + " | ${scanState.elapsedMs / 1000}s",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
@@ -133,47 +106,27 @@ fun ScannerScreen(
                 }
             }
 
-            // Best IP result card
+            // Best IP result
             AnimatedVisibility(visible = bestIp != null && !scanState.isScanning) {
                 bestIp?.let { result ->
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                        )
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp)
-                        ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column {
-                                    Text(
-                                        text = "✅ Best IP Found",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = result.ip,
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = "Ping: ${result.latency}ms",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
+                                    Text("✅ Best IP Found", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(result.ip, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                                    Text("Ping: ${result.latency}ms", style = MaterialTheme.typography.bodyMedium)
                                 }
-
                                 selectedProfile?.let { profile ->
-                                    Button(
-                                        onClick = { viewModel.connectWithBestIp(profile) }
-                                    ) {
-                                        Icon(Icons.Default.Link, contentDescription = null)
+                                    Button(onClick = { viewModel.connectWithBestIp(profile) }) {
+                                        Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(20.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text("Connect")
                                     }
@@ -184,87 +137,34 @@ fun ScannerScreen(
                 }
             }
 
-            // Scan results list
+            // Scan results
             AnimatedVisibility(visible = scanResults.isNotEmpty()) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 8.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp)
-                    ) {
-                        Text(
-                            text = "Found IPs (${scanResults.size})",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
+                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Found IPs (${scanResults.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(8.dp))
                         scanResults.take(5).forEach { result ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = result.ip,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text(
-                                    text = "${result.latency}ms",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = getPingColor(result.latency)
-                                )
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(result.ip, style = MaterialTheme.typography.bodyMedium)
+                                Text("${result.latency}ms", style = MaterialTheme.typography.bodyMedium, color = getPingColor(result.latency))
                             }
                         }
                         if (scanResults.size > 5) {
-                            Text(
-                                text = "... and ${scanResults.size - 5} more",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
+                            Text("... and ${scanResults.size - 5} more", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                         }
                     }
                 }
             }
 
-            // Profile list
+            // Empty state
             if (profiles.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            Icons.Default.WifiFind,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                        )
+                Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.WifiFind, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "No Scanner Configs",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                        Text("No Scanner Configs", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Add a VLESS/Trojan/Hysteria2 config\nwith CDN to start scanning",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Button(onClick = onNavigateToImport) {
-                            Icon(Icons.Default.Add, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Add Config")
-                        }
+                        Text("Add a VLESS/Trojan/Hysteria2 config\nwith CDN to start scanning", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                     }
                 }
             } else {
@@ -290,23 +190,12 @@ fun ScannerScreen(
         }
     }
 
-    // Settings Dialog
     if (showSettings) {
-        ScannerSettingsDialog(
-            settings = scannerSettings,
-            onDismiss = { viewModel.hideSettings() },
-            onSave = { viewModel.updateSettings(it) }
-        )
+        ScannerSettingsDialog(settings = scannerSettings, onDismiss = { viewModel.hideSettings() }, onSave = { viewModel.updateSettings(it) })
     }
 
-    // Details Dialog
     showDetails?.let { profile ->
-        ProfileDetailsDialog(
-            profile = profile,
-            address = viewModel.getProfileAddress(profile),
-            port = viewModel.getProfilePort(profile),
-            onDismiss = { viewModel.hideDetails() }
-        )
+        ProfileDetailsDialog(profile = profile, address = viewModel.getProfileAddress(profile), port = viewModel.getProfilePort(profile), onDismiss = { viewModel.hideDetails() })
     }
 }
 
@@ -322,22 +211,18 @@ fun ScannerProfileCard(
     onDelete: () -> Unit
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var pingResult by remember { mutableStateOf<String?>(null) }
+    var isPinging by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
+    Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     // Protocol badge
                     Box(
                         modifier = Modifier
@@ -345,59 +230,44 @@ fun ScannerProfileCard(
                             .background(getProtocolColor(profile.tunnelType))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text(
-                            text = profile.tunnelType.displayName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text(profile.tunnelType.displayName, style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
                     }
-
                     Spacer(modifier = Modifier.width(12.dp))
-
                     Column {
-                        Text(
-                            text = profile.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "$address:$port",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                        Text(profile.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("$address:$port", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                     }
                 }
-
-                // Details button
                 IconButton(onClick = onDetails) {
-                    Icon(
-                        Icons.Default.Edit,
-                        contentDescription = "Details",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    Icon(Icons.Default.Edit, contentDescription = "Details", tint = MaterialTheme.colorScheme.primary)
                 }
             }
 
-            // Last scan info
-            if (profile.lastScannedIp.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+            // Last scan + ping info
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (profile.lastScannedIp.isNotBlank()) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(4.dp))
+                    Text("Last: ${profile.lastScannedIp}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                // Ping result
+                if (isPinging) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Pinging...", style = MaterialTheme.typography.labelSmall)
+                } else if (pingResult != null) {
                     Text(
-                        text = "Last scan: ${profile.lastScannedIp}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
+                        text = pingResult!!,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (pingResult!!.contains("ms")) Color(0xFF4CAF50) else Color(0xFFF44336),
+                        modifier = Modifier
+                            .background(
+                                if (pingResult!!.contains("ms")) Color(0xFF4CAF50).copy(alpha = 0.1f) else Color(0xFFF44336).copy(alpha = 0.1f),
+                                RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
@@ -405,74 +275,77 @@ fun ScannerProfileCard(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Action buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Scan button
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Ping button
                 OutlinedButton(
-                    onClick = onScan,
-                    enabled = !isScanning,
-                    modifier = Modifier.weight(1f)
+                    onClick = {
+                        scope.launch {
+                            isPinging = true
+                            pingResult = null
+                            pingResult = tcpPing(address, port)
+                            isPinging = false
+                        }
+                    },
+                    enabled = !isPinging,
+                    modifier = Modifier.weight(0.8f)
                 ) {
-                    if (isScanning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                    }
+                    Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (isScanning) "Scanning..." else "Scan")
+                    Text("Ping")
                 }
 
-                // Connect button
+                // Scan button
+                OutlinedButton(onClick = onScan, enabled = !isScanning, modifier = Modifier.weight(0.8f)) {
+                    if (isScanning) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (isScanning) "..." else "Scan")
+                }
+
+                // Connect button (like main screen)
                 Button(
                     onClick = onConnect,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1.2f),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Default.Link, contentDescription = null)
+                    Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Connect")
                 }
 
-                // Delete button
-                IconButton(
-                    onClick = { showDeleteConfirm = true }
-                ) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error
-                    )
+                // Delete
+                IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                 }
             }
         }
     }
 
-    // Delete confirmation dialog
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Delete Config?") },
-            text = { Text("Are you sure you want to delete \"${profile.name}\"?") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDelete()
-                        showDeleteConfirm = false
-                    }
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("Cancel")
-                }
-            }
+            text = { Text("Delete \"${profile.name}\"?") },
+            confirmButton = { TextButton(onClick = { onDelete(); showDeleteConfirm = false }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } }
         )
+    }
+}
+
+/** Simple TCP ping to check server reachability */
+suspend fun tcpPing(host: String, port: Int): String = withContext(Dispatchers.IO) {
+    try {
+        val start = System.currentTimeMillis()
+        java.net.Socket().use { socket ->
+            socket.connect(java.net.InetSocketAddress(host, port), 5000)
+        }
+        val elapsed = System.currentTimeMillis() - start
+        "${elapsed}ms"
+    } catch (e: Exception) {
+        "Failed"
     }
 }
 
@@ -487,7 +360,6 @@ fun ScannerSettingsDialog(
     var maxResults by remember { mutableStateOf(settings.maxResults.toString()) }
     var autoConnect by remember { mutableStateOf(settings.autoConnect) }
     var saveHistory by remember { mutableStateOf(settings.saveHistory) }
-
     var rangeSource by remember { mutableStateOf(settings.rangeSource) }
     var scanSpeed by remember { mutableStateOf(settings.scanSpeed) }
 
@@ -496,235 +368,113 @@ fun ScannerSettingsDialog(
         title = { Text("Scanner Settings") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                OutlinedTextField(value = maxLatency, onValueChange = { maxLatency = it.filter { c -> c.isDigit() } }, label = { Text("Max Latency (ms)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = maxResults, onValueChange = { maxResults = it.filter { c -> c.isDigit() } }, label = { Text("Max IPs to Find") }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
-                OutlinedTextField(
-                    value = maxLatency,
-                    onValueChange = { maxLatency = it.filter { c -> c.isDigit() } },
-                    label = { Text("Max Latency (ms)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = maxResults,
-                    onValueChange = { maxResults = it.filter { c -> c.isDigit() } },
-                    label = { Text("Max IPs to Find") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // Range Source
                 var sourceExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = sourceExpanded,
-                    onExpandedChange = { sourceExpanded = !sourceExpanded }
-                ) {
+                ExposedDropdownMenuBox(expanded = sourceExpanded, onExpandedChange = { sourceExpanded = !sourceExpanded }) {
                     OutlinedTextField(
-                        value = when (rangeSource) {
-                            CdnScanner.RangeSource.MAIN -> "cf_ip_range_v4 (Main)"
-                            CdnScanner.RangeSource.EXTENDED -> "cf_cidrs_v4 (Extended)"
-                            CdnScanner.RangeSource.BOTH -> "Both (Recommended)"
-                        },
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Range Source") },
+                        value = when (rangeSource) { CdnScanner.RangeSource.MAIN -> "Main"; CdnScanner.RangeSource.EXTENDED -> "Extended"; CdnScanner.RangeSource.BOTH -> "Both" },
+                        onValueChange = {}, readOnly = true, label = { Text("Range Source") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sourceExpanded) },
                         modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
-                    ExposedDropdownMenu(
-                        expanded = sourceExpanded,
-                        onDismissRequest = { sourceExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("cf_ip_range_v4 (Main) - faster, fewer ranges") },
-                            onClick = {
-                                rangeSource = CdnScanner.RangeSource.MAIN
-                                sourceExpanded = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("cf_cidrs_v4 (Extended) - best for Iran") },
-                            onClick = {
-                                rangeSource = CdnScanner.RangeSource.EXTENDED
-                                sourceExpanded = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Both (Recommended)") },
-                            onClick = {
-                                rangeSource = CdnScanner.RangeSource.BOTH
-                                sourceExpanded = false
-                            }
-                        )
+                    ExposedDropdownMenu(expanded = sourceExpanded, onDismissRequest = { sourceExpanded = false }) {
+                        DropdownMenuItem(text = { Text("Main (faster)") }, onClick = { rangeSource = CdnScanner.RangeSource.MAIN; sourceExpanded = false })
+                        DropdownMenuItem(text = { Text("Extended (best for Iran)") }, onClick = { rangeSource = CdnScanner.RangeSource.EXTENDED; sourceExpanded = false })
+                        DropdownMenuItem(text = { Text("Both (Recommended)") }, onClick = { rangeSource = CdnScanner.RangeSource.BOTH; sourceExpanded = false })
                     }
                 }
 
-                // Scan Speed
                 var speedExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = speedExpanded,
-                    onExpandedChange = { speedExpanded = !speedExpanded }
-                ) {
+                ExposedDropdownMenuBox(expanded = speedExpanded, onExpandedChange = { speedExpanded = !speedExpanded }) {
                     OutlinedTextField(
-                        value = scanSpeed.displayName,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Scan Speed") },
+                        value = scanSpeed.displayName, onValueChange = {}, readOnly = true, label = { Text("Scan Speed") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = speedExpanded) },
                         supportingText = { Text(scanSpeed.description) },
                         modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
-                    ExposedDropdownMenu(
-                        expanded = speedExpanded,
-                        onDismissRequest = { speedExpanded = false }
-                    ) {
+                    ExposedDropdownMenu(expanded = speedExpanded, onDismissRequest = { speedExpanded = false }) {
                         CdnScanner.ScanSpeed.entries.forEach { sp ->
-                            DropdownMenuItem(
-                                text = { Text("${sp.displayName} • ${sp.description}") },
-                                onClick = {
-                                    scanSpeed = sp
-                                    speedExpanded = false
-                                }
-                            )
+                            DropdownMenuItem(text = { Text("${sp.displayName} • ${sp.description}") }, onClick = { scanSpeed = sp; speedExpanded = false })
                         }
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Auto Connect")
-                    Switch(checked = autoConnect, onCheckedChange = { autoConnect = it })
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Auto Connect"); Switch(checked = autoConnect, onCheckedChange = { autoConnect = it })
                 }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Save Scan History")
-                    Switch(checked = saveHistory, onCheckedChange = { saveHistory = it })
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Save History"); Switch(checked = saveHistory, onCheckedChange = { saveHistory = it })
                 }
             }
         },
         confirmButton = {
             Button(onClick = {
-                onSave(
-                    settings.copy(
-                        maxLatency = maxLatency.toIntOrNull() ?: 300,
-                        maxResults = maxResults.toIntOrNull() ?: 10,
-                        rangeSource = rangeSource,
-                        scanSpeed = scanSpeed,
-                        autoConnect = autoConnect,
-                        saveHistory = saveHistory
-                    )
-                )
+                onSave(settings.copy(maxLatency = maxLatency.toIntOrNull() ?: 300, maxResults = maxResults.toIntOrNull() ?: 10, rangeSource = rangeSource, scanSpeed = scanSpeed, autoConnect = autoConnect, saveHistory = saveHistory))
                 onDismiss()
             }) { Text("Save") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
 @Composable
-fun ProfileDetailsDialog(
-    profile: ServerProfile,
-    address: String,
-    port: Int,
-    onDismiss: () -> Unit
-) {
+fun ProfileDetailsDialog(profile: ServerProfile, address: String, port: Int, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(profile.name) },
         text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 DetailRow("Protocol", profile.tunnelType.displayName)
                 DetailRow("Address", address)
                 DetailRow("Port", port.toString())
-
                 when (profile.tunnelType) {
                     TunnelType.VLESS -> {
                         DetailRow("UUID", profile.vlessUuid.take(8) + "...")
                         DetailRow("Security", profile.vlessSecurity)
                         DetailRow("Network", profile.vlessNetwork)
-                        if (profile.vlessFlow.isNotBlank()) {
-                            DetailRow("Flow", profile.vlessFlow)
-                        }
-                        if (profile.vlessSni.isNotBlank()) {
-                            DetailRow("SNI", profile.vlessSni)
-                        }
+                        if (profile.vlessFlow.isNotBlank()) DetailRow("Flow", profile.vlessFlow)
+                        if (profile.vlessSni.isNotBlank()) DetailRow("SNI", profile.vlessSni)
                     }
                     TunnelType.TROJAN -> {
                         DetailRow("Network", profile.trojanNetwork)
-                        if (profile.trojanSni.isNotBlank()) {
-                            DetailRow("SNI", profile.trojanSni)
-                        }
+                        if (profile.trojanSni.isNotBlank()) DetailRow("SNI", profile.trojanSni)
                     }
-                    TunnelType.HYSTERIA2 -> {
-                        DetailRow("Up Mbps", profile.hy2UpMbps.toString())
-                        DetailRow("Down Mbps", profile.hy2DownMbps.toString())
-                    }
-                    TunnelType.SHADOWSOCKS -> {
-                        DetailRow("Method", profile.ssMethod)
-                    }
+                    TunnelType.HYSTERIA2 -> { DetailRow("Up", "${profile.hy2UpMbps} Mbps"); DetailRow("Down", "${profile.hy2DownMbps} Mbps") }
+                    TunnelType.SHADOWSOCKS -> DetailRow("Method", profile.ssMethod)
                     else -> {}
                 }
-
                 if (profile.lastScannedIp.isNotBlank()) {
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     DetailRow("Last Scanned IP", profile.lastScannedIp)
                 }
             }
         },
-        confirmButton = {
-            Button(onClick = onDismiss) {
-                Text("Close")
-            }
-        }
+        confirmButton = { Button(onClick = onDismiss) { Text("Close") } }
     )
 }
 
 @Composable
 fun DetailRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium
-        )
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
-fun getProtocolColor(tunnelType: TunnelType): Color {
-    return when (tunnelType) {
-        TunnelType.VLESS -> Color(0xFF2196F3)
-        TunnelType.TROJAN -> Color(0xFF9C27B0)
-        TunnelType.HYSTERIA2 -> Color(0xFFFF9800)
-        TunnelType.SHADOWSOCKS -> Color(0xFF4CAF50)
-        else -> Color(0xFF607D8B)
-    }
+fun getProtocolColor(tunnelType: TunnelType): Color = when (tunnelType) {
+    TunnelType.VLESS -> Color(0xFF2196F3)
+    TunnelType.TROJAN -> Color(0xFF9C27B0)
+    TunnelType.HYSTERIA2 -> Color(0xFFFF9800)
+    TunnelType.SHADOWSOCKS -> Color(0xFF4CAF50)
+    else -> Color(0xFF607D8B)
 }
 
 @Composable
-fun getPingColor(latency: Int): Color {
-    return when {
-        latency < 100 -> Color(0xFF4CAF50)
-        latency < 200 -> Color(0xFFFF9800)
-        else -> Color(0xFFF44336)
-    }
+fun getPingColor(latency: Int): Color = when {
+    latency < 100 -> Color(0xFF4CAF50)
+    latency < 200 -> Color(0xFFFF9800)
+    else -> Color(0xFFF44336)
 }
