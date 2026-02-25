@@ -351,6 +351,13 @@ class VpnRepositoryImpl @Inject constructor(
         Log.i(TAG, "  UDP tunneling: $enableUdpTunneling")
         Log.i(TAG, "========================================")
 
+        // sing-box uses standard SOCKS5 UDP ASSOCIATE, not custom FWD_UDP
+        val udpMode = when (profile.tunnelType) {
+            TunnelType.VLESS, TunnelType.TROJAN, TunnelType.HYSTERIA2, TunnelType.SHADOWSOCKS -> "udp"
+            else -> "tcp"
+        }
+        Log.i(TAG, "  UDP mode: $udpMode")
+
         val hevResult = HevSocks5Tunnel.start(
             tunFd = pfd,
             socksAddress = "127.0.0.1",
@@ -358,6 +365,7 @@ class VpnRepositoryImpl @Inject constructor(
             socksUsername = socksUsername,
             socksPassword = socksPassword,
             enableUdpTunneling = enableUdpTunneling,
+            udpMode = udpMode,
             mtu = 1500,
             ipv4Address = "10.255.255.1",
             disableQuic = disableQuic
