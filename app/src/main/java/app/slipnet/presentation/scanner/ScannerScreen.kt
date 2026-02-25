@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import app.slipnet.domain.model.ConnectionState
 import app.slipnet.domain.model.ServerProfile
 import app.slipnet.domain.model.TunnelType
 import app.slipnet.presentation.theme.ConnectedGreen
@@ -51,6 +52,8 @@ fun ScannerScreen(
     val showDetails by viewModel.showDetailsDialog.collectAsState()
     val scannerSettings by viewModel.scannerSettings.collectAsState()
     
+    val connectionState by viewModel.connectionState.collectAsState()
+    val connectedProfileId = (connectionState as? ConnectionState.Connected)?.profile?.id
     var showMoreMenu by remember { mutableStateOf(false) }
     var pingResults by remember { mutableStateOf<Map<Long, String?>>(emptyMap()) }
     var pingingIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
@@ -196,6 +199,8 @@ fun ScannerScreen(
                             address = viewModel.getProfileAddress(profile),
                             port = viewModel.getProfilePort(profile),
                             isScanning = scanState.isScanning && selectedProfile?.id == profile.id,
+                            isConnected = connectedProfileId == profile.id,
+                            isConnecting = connectionState is ConnectionState.Connecting && selectedProfile?.id == profile.id,
                             pingResult = pingResults[profile.id],
                             isPinging = profile.id in pingingIds,
                             onPing = {
@@ -211,6 +216,7 @@ fun ScannerScreen(
                             },
                             onScan = { viewModel.startScan(profile) },
                             onConnect = { viewModel.connectWithAutoScan(profile) },
+                            onDisconnect = { viewModel.disconnect() },
                             onEdit = { viewModel.showDetails(profile) },
                             onDelete = { viewModel.deleteProfile(profile) }
                         )
@@ -235,11 +241,14 @@ fun ScannerProfileCard(
     address: String,
     port: Int,
     isScanning: Boolean,
+    isConnected: Boolean = false,
+    isConnecting: Boolean = false,
     pingResult: String?,
     isPinging: Boolean,
     onPing: () -> Unit,
     onScan: () -> Unit,
     onConnect: () -> Unit,
+    onDisconnect: () -> Unit = {},
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -247,11 +256,15 @@ fun ScannerProfileCard(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     
     val cardShape = RoundedCornerShape(12.dp)
+    
+    val borderMod = if (isConnected) Modifier.border(2.dp, ConnectedGreen, cardShape) else Modifier
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(borderMod),
         shape = cardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isConnected) ConnectedGreen.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
@@ -281,6 +294,17 @@ fun ScannerProfileCard(
                             .background(getProtocolColor(profile.tunnelType).copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
+                    if (isConnected) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Connected",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ConnectedGreen,
+                            modifier = Modifier
+                                .background(ConnectedGreen.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
                 
                 // Address + Ping result
@@ -387,12 +411,13 @@ fun ScannerProfileCard(
                 }
             }
             Button(
-                onClick = onConnect,
-                modifier = Modifier.weight(1f)
+                onClick = if (isConnected) onDisconnect else onConnect,
+                modifier = Modifier.weight(1f),
+                colors = if (isConnected) ButtonDefaults.buttonColors(containerColor = DisconnectedRed) else ButtonDefaults.buttonColors()
             ) {
                 Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Connect")
+                Text(if (isConnected) "Disconnect" else if (isConnecting) "Connecting..." else "Connect")
             }
         }
     }

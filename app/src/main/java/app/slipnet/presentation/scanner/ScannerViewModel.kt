@@ -23,6 +23,8 @@ class ScannerViewModel @Inject constructor(
 ) : ViewModel() {
 
     // فقط پروفایل‌هایی که مخصوص اسکنر هستند رو نشون بده
+    val connectionState = connectionManager.connectionState
+
     val scannerProfiles: StateFlow<List<ServerProfile>> = profileRepository.getAllProfiles()
         .map { profiles -> profiles.filter { it.isScannerProfile } }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
@@ -145,6 +147,10 @@ class ScannerViewModel @Inject constructor(
             TunnelType.SHADOWSOCKS -> profile.lastScannedIp.ifBlank { profile.ssAddress }
             else -> profile.domain
         }
+    }
+
+    fun disconnect() {
+        viewModelScope.launch { connectionManager.disconnect() }
     }
 
     fun getProfilePort(profile: ServerProfile): Int {
