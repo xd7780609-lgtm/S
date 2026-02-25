@@ -25,7 +25,7 @@ fun ScannerImportScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Import Scanner Config") },
+                title = { Text("Import Proxy Config") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -60,7 +60,7 @@ fun ScannerImportScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Supported Formats",
+                            text = "Supported Protocols: VLESS / Trojan / Hy2 / SS",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer

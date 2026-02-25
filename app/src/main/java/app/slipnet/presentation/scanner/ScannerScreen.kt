@@ -210,115 +210,149 @@ fun ScannerProfileCard(
     onDetails: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var pingResult by remember { mutableStateOf<String?>(null) }
     var isPinging by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(16.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    // Protocol badge
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(getProtocolColor(profile.tunnelType))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(profile.tunnelType.displayName, style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(profile.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("$address:$port", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                    }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(getProtocolColor(profile.tunnelType))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        profile.tunnelType.displayName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-                IconButton(onClick = onDetails) {
-                    Icon(Icons.Default.Edit, contentDescription = "Details", tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        profile.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "$address:$port",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Ping Test") },
+                            onClick = {
+                                showMenu = false
+                                scope.launch {
+                                    isPinging = true
+                                    pingResult = null
+                                    pingResult = tcpPing(address, port)
+                                    isPinging = false
+                                }
+                            },
+                            leadingIcon = { Icon(Icons.Default.Speed, contentDescription = null) },
+                            enabled = !isPinging
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Edit Config") },
+                            onClick = { showMenu = false; onDetails() },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            onClick = { showMenu = false; showDeleteConfirm = true },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                        )
+                    }
                 }
             }
 
-            // Last scan + ping info
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 if (profile.lastScannedIp.isNotBlank()) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Last: ${profile.lastScannedIp}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("IP: ${profile.lastScannedIp}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                } else {
+                    Text("No scan yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                 }
-                Spacer(modifier = Modifier.weight(1f))
-                // Ping result
                 if (isPinging) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Pinging...", style = MaterialTheme.typography.labelSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Pinging...", style = MaterialTheme.typography.labelSmall)
+                    }
                 } else if (pingResult != null) {
+                    val isSuccess = pingResult!!.contains("ms")
                     Text(
                         text = pingResult!!,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (pingResult!!.contains("ms")) Color(0xFF4CAF50) else Color(0xFFF44336),
+                        color = if (isSuccess) Color(0xFF4CAF50) else Color(0xFFF44336),
                         modifier = Modifier
                             .background(
-                                if (pingResult!!.contains("ms")) Color(0xFF4CAF50).copy(alpha = 0.1f) else Color(0xFFF44336).copy(alpha = 0.1f),
-                                RoundedCornerShape(4.dp)
+                                if (isSuccess) Color(0xFF4CAF50).copy(alpha = 0.1f) else Color(0xFFF44336).copy(alpha = 0.1f),
+                                RoundedCornerShape(6.dp)
                             )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Action buttons
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Ping button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            isPinging = true
-                            pingResult = null
-                            pingResult = tcpPing(address, port)
-                            isPinging = false
-                        }
-                    },
-                    enabled = !isPinging,
-                    modifier = Modifier.weight(0.8f)
+                    onClick = onScan,
+                    enabled = !isScanning,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Ping")
-                }
-
-                // Scan button
-                OutlinedButton(onClick = onScan, enabled = !isScanning, modifier = Modifier.weight(0.8f)) {
                     if (isScanning) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
-                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (isScanning) "..." else "Scan")
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isScanning) "Scanning..." else "Scan CDN")
                 }
-
-                // Connect button (like main screen)
                 Button(
                     onClick = onConnect,
-                    modifier = Modifier.weight(1.2f),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text("Connect")
-                }
-
-                // Delete
-                IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -328,9 +362,17 @@ fun ScannerProfileCard(
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Delete Config?") },
-            text = { Text("Delete \"${profile.name}\"?") },
-            confirmButton = { TextButton(onClick = { onDelete(); showDeleteConfirm = false }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } }
+            text = { Text("Are you sure you want to delete \"${profile.name}\"?") },
+            confirmButton = {
+                TextButton(onClick = { onDelete(); showDeleteConfirm = false }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }
@@ -477,4 +519,5 @@ fun getPingColor(latency: Int): Color = when {
     latency < 100 -> Color(0xFF4CAF50)
     latency < 200 -> Color(0xFFFF9800)
     else -> Color(0xFFF44336)
+}
 }
