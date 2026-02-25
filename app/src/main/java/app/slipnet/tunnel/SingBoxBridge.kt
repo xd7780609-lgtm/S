@@ -198,32 +198,18 @@ object SingBoxBridge {
 
     // ==================== Config ====================
 
+    // ==================== Config ====================
+
     private fun buildConfig(profile: ServerProfile, listenPort: Int, listenHost: String): String {
         val config = JSONObject()
 
+        // لاگ
         config.put("log", JSONObject().apply {
             put("level", if (debugLogging) "debug" else "info")
             put("timestamp", true)
         })
 
-        config.put("dns", JSONObject().apply {
-            put("servers", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("tag", "remote")
-                    put("address", "1.1.1.1")
-                    put("detour", "proxy")
-                })
-                put(JSONObject().apply {
-                    put("tag", "local")
-                    put("address", "local")
-                    put("detour", "direct")
-                })
-            })
-            put("final", "remote")
-            put("independent_cache", true)
-            put("strategy", "prefer_ipv4")
-        })
-
+        // فقط یک inbound به صورت SOCKS5 روی لوکال
         config.put("inbounds", JSONArray().apply {
             put(JSONObject().apply {
                 put("type", "socks")
@@ -234,6 +220,7 @@ object SingBoxBridge {
             })
         })
 
+        // outbound اصلی بر اساس نوع تونل
         val outbound = when (profile.tunnelType) {
             TunnelType.VLESS -> buildVlessOutbound(profile)
             TunnelType.TROJAN -> buildTrojanOutbound(profile)
@@ -242,28 +229,23 @@ object SingBoxBridge {
             else -> throw IllegalArgumentException("Unsupported: ${profile.tunnelType}")
         }
 
+        // فقط دو outbound: proxy و direct
         config.put("outbounds", JSONArray().apply {
             put(outbound)
-            put(JSONObject().apply { put("type", "direct"); put("tag", "direct") })
-            put(JSONObject().apply { put("type", "dns"); put("tag", "dns-out") })
+            put(JSONObject().apply {
+                put("type", "direct")
+                put("tag", "direct")
+            })
         })
 
+        // تمام ترافیک (شامل DNS) به صورت پیش‌فرض از proxy عبور می‌کند
         config.put("route", JSONObject().apply {
-            put("rules", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("protocol", "dns")
-                    put("outbound", "dns-out")
-                })
-                put(JSONObject().apply {
-                    put("port", 53)
-                    put("outbound", "dns-out")
-                })
-            })
             put("final", "proxy")
         })
 
         return config.toString(2)
     }
+
 
     private fun buildVlessOutbound(profile: ServerProfile): JSONObject {
         val address = profile.lastScannedIp.ifBlank { profile.vlessAddress }
