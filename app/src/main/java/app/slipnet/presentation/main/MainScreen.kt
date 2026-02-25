@@ -826,88 +826,89 @@ fun MainScreen(
     }
 
     // First launch About dialog
-if (uiState.showFirstLaunchAbout) {
+    if (uiState.showFirstLaunchAbout) {
 
-    AlertDialog(
-        onDismissRequest = { viewModel.dismissFirstLaunchAbout() },
-        title = {
-            Text(
-                "👋 Welcome to SlipNet",
-                style = MaterialTheme.typography.headlineSmall
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // ── نسخه ──
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissFirstLaunchAbout() },
+            title = {
                 Text(
-                    text = "Version ${app.slipnet.BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    "\ud83d\udc4b Welcome to SlipNet",
+                    style = MaterialTheme.typography.headlineSmall
                 )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Version
+                    Text(
+                        text = "Version ${app.slipnet.BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
 
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
 
-                // ── درباره پروژه ──
-                Text(
-                    text = "SlipNet is a free anti-censorship VPN tool " +
-                            "that tunnels your traffic through DNS, SSH, Tor, " +
-                            "and other protocols to keep you connected when " +
-                            "access is blocked.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                    // About
+                    Text(
+                        text = "SlipNet is a free anti-censorship VPN tool " +
+                                "that tunnels your traffic through DNS, SSH, Tor, " +
+                                "and other protocols to keep you connected when " +
+                                "access is blocked.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
 
-                // ── کردیت ──
-                Text(
-                    text = "⚠️ Disclaimer",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "This app is based on an open-source project. " +
-                            "I am not the original creator of the entire codebase.\n\n" +
-                            "This version has been modified and customized. " +
-                            "All credit for the original work goes to the original developers.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                    // Disclaimer
+                    Text(
+                        text = "\u26a0\ufe0f Disclaimer",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "This app is based on an open-source project. " +
+                                "I am not the original creator of the entire codebase.\n\n" +
+                                "This version has been modified and customized. " +
+                                "All credit for the original work goes to the original developers.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
 
-                // ── دولوپر ──
-                Text(
-                    text = "Modified & Maintained by",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "ZEUS",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 6.sp
-                    ),
-                    color = MaterialTheme.colorScheme.primary
-                )
+                    // Developer
+                    Text(
+                        text = "Modified & Maintained by",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "ZEUS",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 6.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissFirstLaunchAbout() }) {
+                    Text("\ud83d\ude80 Let's Go!")
+                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { viewModel.dismissFirstLaunchAbout() }) {
-                Text("🚀 Let's Go!")
-            }
-        }
-    )
+        )
+    }
 }
 
 // ── ConnectionStatusStrip ───────────────────────────────────────────────

@@ -778,119 +778,120 @@ fun SettingsScreen(
     }
 
     // About Dialog
-if (showAboutDialog) {
-    val uriHandler = LocalUriHandler.current
+    if (showAboutDialog) {
+        val uriHandler = LocalUriHandler.current
 
-    AlertDialog(
-        onDismissRequest = { showAboutDialog = false },
-        title = { Text("About SlipNet") },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // ── نسخه ──
-                Text(
-                    text = "SlipNet VPN v${BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "A free anti-censorship VPN tool designed to bypass " +
-                            "internet restrictions. SlipNet tunnels your traffic " +
-                            "through DNS, SSH, Tor, and other protocols to keep " +
-                            "you connected when access is blocked.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                )
-
-                // ── سورس اصلی ──
-                Text(
-                    text = "📂 Original Source Code",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "github.com/anonvector/SlipNet",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable {
-                        uriHandler.openUri("https://github.com/anonvector/SlipNet")
-                    }
-                )
-
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                )
-
-                // ── کردیت ──
-                Text(
-                    text = "⚠️ Disclaimer",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "This app is based on an open-source project. " +
-                            "I am not the original creator of the entire codebase.\n\n" +
-                            "This version has been modified and customized. " +
-                            "All credit for the original work goes to the original developers.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                )
-
-                // ── دولوپر ──
-                Text(
-                    text = "Modified & Maintained by",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "ZEUS",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 6.sp
-                    ),
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // ── تلگرام ──
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable {
-                        uriHandler.openUri("https://t.me/mamad_hep")
-                    }
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            title = { Text("About SlipNet") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // Version
                     Text(
-                        text = "📬",
+                        text = "SlipNet VPN v${BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "@mamad_hep",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.Medium
+                        text = "A free anti-censorship VPN tool designed to bypass " +
+                                "internet restrictions. SlipNet tunnels your traffic " +
+                                "through DNS, SSH, Tor, and other protocols to keep " +
+                                "you connected when access is blocked.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+
+                    // Source
+                    Text(
+                        text = "\ud83d\udcc2 Original Source Code",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "github.com/anonvector/SlipNet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable {
+                            uriHandler.openUri("https://github.com/anonvector/SlipNet")
+                        }
+                    )
+
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+
+                    // Disclaimer
+                    Text(
+                        text = "\u26a0\ufe0f Disclaimer",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "This app is based on an open-source project. " +
+                                "I am not the original creator of the entire codebase.\n\n" +
+                                "This version has been modified and customized. " +
+                                "All credit for the original work goes to the original developers.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+
+                    // Developer
+                    Text(
+                        text = "Modified & Maintained by",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "ZEUS",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 6.sp
                         ),
                         color = MaterialTheme.colorScheme.primary
                     )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Telegram
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable {
+                            uriHandler.openUri("https://t.me/mamad_hep")
+                        }
+                    ) {
+                        Text(
+                            text = "\ud83d\udcec",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "@mamad_hep",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("Close")
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { showAboutDialog = false }) {
-                Text("Close")
-            }
-        }
-    )
+        )
+    }
 }
 
 @Composable
