@@ -220,6 +220,8 @@ object SingBoxBridge {
                 })
             })
             put("final", "remote")
+            put("independent_cache", true)
+            put("strategy", "prefer_ipv4")
         })
 
         config.put("inbounds", JSONArray().apply {
@@ -229,7 +231,6 @@ object SingBoxBridge {
                 put("listen", listenHost)
                 put("listen_port", listenPort)
                 put("sniff", true)
-                put("sniff_override_destination", true)
             })
         })
 
@@ -251,6 +252,10 @@ object SingBoxBridge {
             put("rules", JSONArray().apply {
                 put(JSONObject().apply {
                     put("protocol", "dns")
+                    put("outbound", "dns-out")
+                })
+                put(JSONObject().apply {
+                    put("port", 53)
                     put("outbound", "dns-out")
                 })
             })
