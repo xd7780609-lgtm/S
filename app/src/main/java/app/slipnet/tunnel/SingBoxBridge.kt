@@ -198,10 +198,6 @@ object SingBoxBridge {
 
     // ==================== Config ====================
 
-    // ==================== Config ====================
-
-    // ==================== Config ====================
-
     private fun buildConfig(profile: ServerProfile, listenPort: Int, listenHost: String): String {
         val config = JSONObject()
 
@@ -211,12 +207,13 @@ object SingBoxBridge {
             put("timestamp", true)
         })
 
-        // DNS داخلی: DoH روی گوگل از داخل تونل
+        // ── DNS ──
         config.put("dns", JSONObject().apply {
             put("servers", JSONArray().apply {
                 put(JSONObject().apply {
                     put("tag", "remote")
                     put("address", "https://dns.google/dns-query")
+                    put("address_resolver", "local")   // ✅ رفع FATAL: missing address_resolver
                     put("detour", "proxy")
                 })
                 put(JSONObject().apply {
@@ -250,25 +247,24 @@ object SingBoxBridge {
             else -> throw IllegalArgumentException("Unsupported: ${profile.tunnelType}")
         }
 
-        // outbound ها: proxy اصلی، direct، و dns-out
+        // ── Outbounds ──
         config.put("outbounds", JSONArray().apply {
             put(outbound)
-            put(JSONObject().apply {
-                put("type", "direct")
-                put("tag", "direct")
-            })
-            put(JSONObject().apply {
-                put("type", "dns")
-                put("tag", "dns-out")
-            })
+            put(JSONObject().apply { put("type", "direct"); put("tag", "direct") })
+            put(JSONObject().apply { put("type", "dns");    put("tag", "dns-out") })
+            put(JSONObject().apply { put("type", "block");  put("tag", "block") })   // ✅ جدید: برای بلاک QUIC
         })
 
-        // تمام ترافیک DNS (TCP/UDP) بره به dns-out، بقیه به proxy
+        // ── Route ──
         config.put("route", JSONObject().apply {
             put("rules", JSONArray().apply {
                 put(JSONObject().apply {
                     put("protocol", "dns")
                     put("outbound", "dns-out")
+                })
+                put(JSONObject().apply {
+                    put("protocol", "quic")        // ✅ جدید: بلاک QUIC برای جلوگیری از HTTP 400
+                    put("outbound", "block")
                 })
             })
             put("final", "proxy")
@@ -276,8 +272,6 @@ object SingBoxBridge {
 
         return config.toString(2)
     }
-
-
 
     private fun buildVlessOutbound(profile: ServerProfile): JSONObject {
         val address = profile.lastScannedIp.ifBlank { profile.vlessAddress }
@@ -386,7 +380,7 @@ object SingBoxBridge {
                     put("type", "ws")
                     if (wsPath.isNotBlank()) put("path", wsPath)
                     if (wsHost.isNotBlank()) put("headers", JSONObject().apply { put("Host", wsHost) })
-                                    }
+                }
                 "grpc" -> {
                     put("type", "grpc")
                     if (grpcServiceName.isNotBlank()) put("service_name", grpcServiceName)
