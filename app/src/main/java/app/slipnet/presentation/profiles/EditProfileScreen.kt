@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
@@ -177,8 +178,51 @@ fun EditProfileScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Domain / SSH Server (hidden for DOH and Snowflake profiles)
-                if (!uiState.isDoh && !uiState.isSnowflake) {
+                // ✅ Sing-box protocol info (read-only)
+                if (uiState.isSingBox) {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = "Server Configuration",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (uiState.singBoxServerInfo.isNotBlank()) {
+                                Text(
+                                    text = uiState.singBoxServerInfo,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Text(
+                                text = "This profile was imported from a config link. Server settings cannot be edited — only the name can be changed.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // Domain / SSH Server (hidden for DOH, Snowflake, and sing-box profiles)
+                if (!uiState.isDoh && !uiState.isSnowflake && !uiState.isSingBox) {
                     OutlinedTextField(
                         value = uiState.domain,
                         onValueChange = { viewModel.updateDomain(it) },
@@ -441,8 +485,9 @@ fun EditProfileScreen(
                     )
                 }
 
-                // Resolvers (not shown for SSH-only, DOH, or DNSTT with DoH transport)
-                val showResolvers = !uiState.isSshOnly && !uiState.isDoh && !uiState.isSnowflake && !uiState.isNaiveSsh &&
+                // Resolvers (not shown for SSH-only, DOH, Snowflake, NaiveSSH, or sing-box)
+                val showResolvers = !uiState.isSshOnly && !uiState.isDoh && !uiState.isSnowflake && 
+                        !uiState.isNaiveSsh && !uiState.isSingBox &&
                         !(uiState.isDnsttBased && uiState.dnsTransport == DnsTransport.DOH)
                 if (showResolvers) {
                     val isDoT = uiState.isDnsttBased && uiState.dnsTransport == DnsTransport.DOT
@@ -803,7 +848,7 @@ fun EditProfileScreen(
                     }
                 }
 
-                // Connection Method section (DNSTT & Slipstream only, not SSH-only)
+                // Connection Method section (DNSTT & Slipstream only, not SSH-only or sing-box)
                 if (uiState.showConnectionMethod) {
                     Text(
                         text = "Connection Method",
@@ -1309,4 +1354,3 @@ private fun DohTestDialog(
         }
     )
 }
-

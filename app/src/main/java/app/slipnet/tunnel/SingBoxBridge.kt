@@ -43,13 +43,11 @@ object SingBoxBridge {
             Log.i(TAG, "Starting sing-box on $listenHost:$listenPort (${profile.tunnelType.displayName})")
             Log.d(TAG, "Config:\n$configJson")
 
-            // Write config to file
             val configDir = File(context.filesDir, "singbox")
             configDir.mkdirs()
             val configFile = File(configDir, "config.json")
             configFile.writeText(configJson)
 
-            // Find sing-box binary
             val binary = File(context.applicationInfo.nativeLibraryDir, "libsingbox.so")
             if (!binary.exists()) {
                 return@withContext Result.failure(RuntimeException(
@@ -58,33 +56,27 @@ object SingBoxBridge {
                 ))
             }
 
-            // Ensure executable permission
             binary.setExecutable(true, false)
             Log.d(TAG, "Binary: ${binary.absolutePath} (${binary.length()} bytes, exec=${binary.canExecute()})")
 
-            // Start sing-box process
             val pb = ProcessBuilder(binary.absolutePath, "run", "-c", configFile.absolutePath, "-D", configDir.absolutePath)
             pb.redirectErrorStream(true)
             pb.environment()["HOME"] = configDir.absolutePath
             val process = pb.start()
             singBoxProcess = process
 
-            // Read startup output synchronously to catch errors
             val startupOutput = StringBuilder()
             val reader = BufferedReader(InputStreamReader(process.inputStream))
             val startTime = System.currentTimeMillis()
 
-            // Read output for up to 3 seconds to detect startup errors
             while (System.currentTimeMillis() - startTime < 3000) {
                 if (reader.ready()) {
                     val line = reader.readLine() ?: break
                     startupOutput.appendLine(line)
                     Log.d(TAG, "sing-box: $line")
 
-                    // Check for fatal error indicators
                     if (line.contains("fatal", ignoreCase = true) ||
                         line.contains("error", ignoreCase = true) && !line.contains("level=")) {
-                        // Give it a moment to fully exit
                         Thread.sleep(200)
                         if (!process.isAlive) {
                             singBoxProcess = null
@@ -94,7 +86,6 @@ object SingBoxBridge {
                         }
                     }
                 } else if (!process.isAlive) {
-                    // Process died, read remaining output
                     while (reader.ready()) {
                         val line = reader.readLine() ?: break
                         startupOutput.appendLine(line)
@@ -105,7 +96,6 @@ object SingBoxBridge {
                 }
             }
 
-            // Check if process survived startup
             if (!process.isAlive) {
                 val exitCode = process.exitValue()
                 singBoxProcess = null
@@ -116,7 +106,6 @@ object SingBoxBridge {
                 ))
             }
 
-            // Start background output reader for ongoing logs
             Thread({
                 try {
                     var line: String?
@@ -130,14 +119,12 @@ object SingBoxBridge {
                 }
             }, "singbox-output").also { it.isDaemon = true; it.start() }
 
-            // Verify SOCKS5 proxy
             if (verifyTcpListening(listenHost, listenPort)) {
                 running.set(true)
                 currentPort = listenPort
                 Log.i(TAG, "sing-box started on port $listenPort")
                 Result.success(Unit)
             } else {
-                // Give more time
                 Thread.sleep(2000)
                 if (process.isAlive && verifyTcpListening(listenHost, listenPort)) {
                     running.set(true)
@@ -148,7 +135,6 @@ object SingBoxBridge {
                     singBoxProcess = null
                     Result.failure(RuntimeException("sing-box exited during startup"))
                 } else {
-                    // Process alive but port not listening - might still be connecting
                     running.set(true)
                     currentPort = listenPort
                     Log.w(TAG, "sing-box running but port not verified yet")
@@ -201,19 +187,17 @@ object SingBoxBridge {
     private fun buildConfig(profile: ServerProfile, listenPort: Int, listenHost: String): String {
         val config = JSONObject()
 
-        // لاگ
         config.put("log", JSONObject().apply {
             put("level", if (debugLogging) "debug" else "info")
             put("timestamp", true)
         })
 
-        // ── DNS ──
+        // ── DNS (plain UDP through proxy — no DoH to avoid ISP hijacking) ──
         config.put("dns", JSONObject().apply {
             put("servers", JSONArray().apply {
                 put(JSONObject().apply {
                     put("tag", "remote")
-                    put("address", "https://dns.google/dns-query")
-                    put("address_resolver", "local")   // ✅ رفع FATAL: missing address_resolver
+                    put("address", "1.1.1.1")
                     put("detour", "proxy")
                 })
                 put(JSONObject().apply {
@@ -227,7 +211,6 @@ object SingBoxBridge {
             put("strategy", "prefer_ipv4")
         })
 
-        // فقط یک inbound به صورت SOCKS5 روی لوکال
         config.put("inbounds", JSONArray().apply {
             put(JSONObject().apply {
                 put("type", "socks")
@@ -238,7 +221,6 @@ object SingBoxBridge {
             })
         })
 
-        // outbound اصلی بر اساس نوع تونل
         val outbound = when (profile.tunnelType) {
             TunnelType.VLESS -> buildVlessOutbound(profile)
             TunnelType.TROJAN -> buildTrojanOutbound(profile)
@@ -247,15 +229,13 @@ object SingBoxBridge {
             else -> throw IllegalArgumentException("Unsupported: ${profile.tunnelType}")
         }
 
-        // ── Outbounds ──
         config.put("outbounds", JSONArray().apply {
             put(outbound)
             put(JSONObject().apply { put("type", "direct"); put("tag", "direct") })
             put(JSONObject().apply { put("type", "dns");    put("tag", "dns-out") })
-            put(JSONObject().apply { put("type", "block");  put("tag", "block") })   // ✅ جدید: برای بلاک QUIC
+            put(JSONObject().apply { put("type", "block");  put("tag", "block") })
         })
 
-        // ── Route ──
         config.put("route", JSONObject().apply {
             put("rules", JSONArray().apply {
                 put(JSONObject().apply {
@@ -263,7 +243,7 @@ object SingBoxBridge {
                     put("outbound", "dns-out")
                 })
                 put(JSONObject().apply {
-                    put("protocol", "quic")        // ✅ جدید: بلاک QUIC برای جلوگیری از HTTP 400
+                    put("protocol", "quic")
                     put("outbound", "block")
                 })
             })
@@ -373,13 +353,31 @@ object SingBoxBridge {
         }
     }
 
+    // ✅ FIX: Handle ?ed=XXXX early data parameter (v2ray/xray compatibility)
     private fun buildTransport(network: String, wsPath: String, wsHost: String, grpcServiceName: String): JSONObject {
         return JSONObject().apply {
             when (network) {
                 "ws" -> {
                     put("type", "ws")
-                    if (wsPath.isNotBlank()) put("path", wsPath)
+
+                    // Parse ?ed=N from path (v2ray early data format)
+                    var cleanPath = wsPath
+                    var earlyData = 0
+                    if (wsPath.contains("?ed=")) {
+                        val edIndex = wsPath.indexOf("?ed=")
+                        cleanPath = wsPath.substring(0, edIndex)
+                        val edValue = wsPath.substring(edIndex + 4).takeWhile { it.isDigit() }
+                        earlyData = edValue.toIntOrNull() ?: 0
+                    }
+
+                    if (cleanPath.isNotBlank()) put("path", cleanPath)
                     if (wsHost.isNotBlank()) put("headers", JSONObject().apply { put("Host", wsHost) })
+
+                    // Convert to sing-box early data format
+                    if (earlyData > 0) {
+                        put("max_early_data", earlyData)
+                        put("early_data_header_name", "Sec-WebSocket-Protocol")
+                    }
                 }
                 "grpc" -> {
                     put("type", "grpc")

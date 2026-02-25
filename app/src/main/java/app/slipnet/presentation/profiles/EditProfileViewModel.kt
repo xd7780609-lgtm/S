@@ -67,19 +67,16 @@ data class EditProfileUiState(
     val profileId: Long? = null,
     val name: String = "",
     val domain: String = "",
-    val resolvers: String = "", // Format: "host:port,host:port" — auto-filled from system DNS
+    val resolvers: String = "",
     val authoritativeMode: Boolean = false,
     val keepAliveInterval: String = "200",
     val congestionControl: CongestionControl = CongestionControl.BBR,
     val gsoEnabled: Boolean = false,
     val socksUsername: String = "",
     val socksPassword: String = "",
-    // Tunnel type selection (DNSTT is recommended)
     val tunnelType: TunnelType = TunnelType.DNSTT,
-    // DNSTT-specific fields
     val dnsttPublicKey: String = "",
     val dnsttPublicKeyError: String? = null,
-    // SSH tunnel fields (SSH-only tunnel type)
     val sshUsername: String = "",
     val sshPassword: String = "",
     val sshPort: String = "22",
@@ -95,40 +92,32 @@ data class EditProfileUiState(
     val nameError: String? = null,
     val domainError: String? = null,
     val resolversError: String? = null,
-    // DoH fields
     val dohUrl: String = "",
     val dohUrlError: String? = null,
     val isTestingDoh: Boolean = false,
     val showDohTestDialog: Boolean = false,
     val dohTestResults: List<DohTestResult> = emptyList(),
-    // DNS transport for DNSTT tunnel types
     val dnsTransport: DnsTransport = DnsTransport.UDP,
-    // Custom DoH URLs for testing (one per line, raw text)
     val customDohUrls: String = "",
-    // SSH auth type (password or key)
     val sshAuthType: SshAuthType = SshAuthType.PASSWORD,
     val sshPrivateKey: String = "",
     val sshKeyPassphrase: String = "",
     val sshPrivateKeyError: String? = null,
-    // Tor bridge type selector (UI-only, not persisted)
     val torBridgeType: TorBridgeType = TorBridgeType.SNOWFLAKE,
-    // Custom Tor bridge lines (Snowflake profiles only, one per line)
     val torBridgeLines: String = "",
     val torBridgeLinesError: String? = null,
-    // Bridge request state
     val isRequestingBridges: Boolean = false,
     val isAskingTor: Boolean = false,
-    // DNSTT authoritative mode (aggressive query rate for own servers)
     val dnsttAuthoritative: Boolean = false,
-    // NaiveProxy fields (NAIVE_SSH tunnel type)
     val naivePort: String = "443",
     val naiveUsername: String = "",
     val naivePassword: String = "",
     val naivePortError: String? = null,
     val naiveUsernameError: String? = null,
     val naivePasswordError: String? = null,
-    // Preserved sort order for updates (not editable)
     val sortOrder: Int = 0,
+    // ── sing-box specific display info ──
+    val singBoxServerInfo: String = "",
 ) {
     val useSsh: Boolean
         get() = tunnelType == TunnelType.SSH || tunnelType == TunnelType.DNSTT_SSH || tunnelType == TunnelType.SLIPSTREAM_SSH || tunnelType == TunnelType.NAIVE_SSH
@@ -151,8 +140,13 @@ data class EditProfileUiState(
     val isNaiveSsh: Boolean
         get() = tunnelType == TunnelType.NAIVE_SSH
 
+    // ✅ sing-box protocols (VLESS, Trojan, Hysteria2, Shadowsocks)
+    val isSingBox: Boolean
+        get() = tunnelType == TunnelType.VLESS || tunnelType == TunnelType.TROJAN ||
+                tunnelType == TunnelType.HYSTERIA2 || tunnelType == TunnelType.SHADOWSOCKS
+
     val showConnectionMethod: Boolean
-        get() = !isSshOnly && !isDoh && !isSnowflake && !isNaiveSsh
+        get() = !isSshOnly && !isDoh && !isSnowflake && !isNaiveSsh && !isSingBox
 }
 
 @HiltViewModel
@@ -174,11 +168,13 @@ class EditProfileViewModel @Inject constructor(
     )
     val uiState: StateFlow<EditProfileUiState> = _uiState.asStateFlow()
 
+    // Store original profile for sing-box (needed for save without losing data)
+    private var originalProfile: ServerProfile? = null
+
     init {
         if (profileId != null && profileId != 0L) {
             loadProfile(profileId)
         } else {
-            // New profile: auto-fill resolver with device's current DNS server
             autoFillResolver()
         }
     }
@@ -198,6 +194,20 @@ class EditProfileViewModel @Inject constructor(
 
             val profile = getProfileByIdUseCase(id)
             if (profile != null) {
+                // Store original profile for sing-box types
+                originalProfile = profile
+
+                // Build sing-box server info string
+                val singBoxInfo = when (profile.tunnelType) {
+                    TunnelType.VLESS -> "VLESS @ ${profile.vlessAddress}:${profile.vlessPort}" +
+                            if (profile.vlessNetwork != "tcp") " (${profile.vlessNetwork})" else ""
+                    TunnelType.TROJAN -> "Trojan @ ${profile.trojanAddress}:${profile.trojanPort}" +
+                            if (profile.trojanNetwork != "tcp") " (${profile.trojanNetwork})" else ""
+                    TunnelType.HYSTERIA2 -> "Hysteria2 @ ${profile.hy2Address}:${profile.hy2Port}"
+                    TunnelType.SHADOWSOCKS -> "Shadowsocks @ ${profile.ssAddress}:${profile.ssPort} (${profile.ssMethod})"
+                    else -> ""
+                }
+
                 _uiState.value = _uiState.value.copy(
                     profileId = profile.id,
                     name = profile.name,
@@ -226,6 +236,7 @@ class EditProfileViewModel @Inject constructor(
                     naiveUsername = profile.naiveUsername,
                     naivePassword = profile.naivePassword,
                     sortOrder = profile.sortOrder,
+                    singBoxServerInfo = singBoxInfo,
                     isLoading = false
                 )
             } else {
@@ -251,7 +262,6 @@ class EditProfileViewModel @Inject constructor(
     }
 
     fun updateResolvers(resolvers: String) {
-        // Validate in real-time but only show error if user has typed something
         val error = if (resolvers.isNotBlank()) {
             validateResolvers(resolvers)
         } else {
@@ -302,7 +312,6 @@ class EditProfileViewModel @Inject constructor(
     }
 
     fun updateDnsttPublicKey(publicKey: String) {
-        // Validate in real-time but only show error if user has typed something
         val error = if (publicKey.isNotBlank()) {
             validateDnsttPublicKey(publicKey)
         } else {
@@ -435,7 +444,6 @@ class EditProfileViewModel @Inject constructor(
                         error = null
                     )
                 } else {
-                    // API unreachable — fall back to Snowflake (uses domain fronting, harder to block)
                     _uiState.value = _uiState.value.copy(
                         isAskingTor = false,
                         torBridgeType = TorBridgeType.SNOWFLAKE,
@@ -445,7 +453,6 @@ class EditProfileViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
-                // API unreachable — fall back to Snowflake (uses domain fronting, harder to block)
                 _uiState.value = _uiState.value.copy(
                     isAskingTor = false,
                     torBridgeType = TorBridgeType.SNOWFLAKE,
@@ -466,7 +473,6 @@ class EditProfileViewModel @Inject constructor(
         val jsonMediaType = "application/vnd.api+json".toMediaType()
         val requestJson = """{"country":"ir","transports":["webtunnel","snowflake","obfs4","meek_lite"]}"""
 
-        // Try direct request first
         try {
             val body = requestJson.toRequestBody(jsonMediaType)
             val request = Request.Builder()
@@ -478,11 +484,8 @@ class EditProfileViewModel @Inject constructor(
                 val result = parseSettingsResponse(response)
                 if (result != null) return result
             }
-        } catch (_: Exception) {
-            // Direct request failed (likely blocked), try domain fronting
-        }
+        } catch (_: Exception) {}
 
-        // Fallback: try domain fronting via multiple CDNs
         for (front in MOAT_FRONT_DOMAINS) {
             try {
                 val body = requestJson.toRequestBody(jsonMediaType)
@@ -496,15 +499,12 @@ class EditProfileViewModel @Inject constructor(
                     val result = parseSettingsResponse(response)
                     if (result != null) return result
                 }
-            } catch (_: Exception) {
-                // This front domain failed, try next
-            }
+            } catch (_: Exception) {}
         }
         return null
     }
 
     private fun parseSettingsResponse(response: okhttp3.Response): Pair<TorBridgeType, String>? {
-        // 404 means no bridges needed for this country
         if (response.code == 404) {
             return Pair(TorBridgeType.DIRECT, "DIRECT")
         }
@@ -515,7 +515,6 @@ class EditProfileViewModel @Inject constructor(
         val json = JSONObject(bodyStr)
         val settings = json.optJSONArray("settings") ?: return null
         if (settings.length() == 0) {
-            // Empty settings = no bridges needed
             return Pair(TorBridgeType.DIRECT, "DIRECT")
         }
 
@@ -552,15 +551,12 @@ class EditProfileViewModel @Inject constructor(
 
         val allBridges = mutableListOf<String>()
 
-        // 1. Try /circumvention/settings for webtunnel bridges (not in /builtin)
         val settingsBridges = fetchSettingsBridgeLines(client)
         if (settingsBridges != null) allBridges.addAll(settingsBridges)
 
-        // 2. Try /circumvention/builtin for snowflake + obfs4
         val builtinBridges = fetchBuiltinBridgeLines(client)
         if (builtinBridges != null) allBridges.addAll(builtinBridges)
 
-        // 3. Fallback: return built-in obfs4 bridges
         if (allBridges.isEmpty()) {
             return DEFAULT_OBFS4_BRIDGES.lines().filter { it.isNotBlank() }
         }
@@ -568,7 +564,6 @@ class EditProfileViewModel @Inject constructor(
     }
 
     private fun fetchBuiltinBridgeLines(client: OkHttpClient): List<String>? {
-        // Try direct
         try {
             val request = Request.Builder()
                 .url("$MOAT_BASE_URL/$MOAT_BUILTIN_PATH")
@@ -578,7 +573,6 @@ class EditProfileViewModel @Inject constructor(
             if (bridges.isNotEmpty()) return bridges
         } catch (_: Exception) {}
 
-        // Try domain fronting
         for (front in MOAT_FRONT_DOMAINS) {
             try {
                 val request = Request.Builder()
@@ -597,7 +591,6 @@ class EditProfileViewModel @Inject constructor(
         val jsonMediaType = "application/vnd.api+json".toMediaType()
         val requestJson = """{"country":"ir","transports":["webtunnel"]}"""
 
-        // Try direct
         try {
             val body = requestJson.toRequestBody(jsonMediaType)
             val request = Request.Builder()
@@ -609,7 +602,6 @@ class EditProfileViewModel @Inject constructor(
             if (lines != null) return lines
         } catch (_: Exception) {}
 
-        // Try domain fronting
         for (front in MOAT_FRONT_DOMAINS) {
             try {
                 val body = requestJson.toRequestBody(jsonMediaType)
@@ -647,12 +639,6 @@ class EditProfileViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Parse /circumvention/builtin response.
-     * Format: {"obfs4": ["obfs4 ...", ...], "snowflake": ["snowflake ...", ...], "webtunnel": [...]}
-     * Takes up to 2 bridges from each type, priority: webtunnel > obfs4 > meek
-     * (snowflake excluded — uses Go library PT, not lyrebird; already available as built-in type)
-     */
     private fun executeBuiltinRequest(client: OkHttpClient, request: Request): List<String> {
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
@@ -713,13 +699,11 @@ class EditProfileViewModel @Inject constructor(
             val client = DohBridge.createHttpClient()
             val completed = java.util.concurrent.ConcurrentHashMap<String, DohTestResult>()
 
-            // Launch all tests in parallel — results stream in as each completes
             val jobs = allServers.map { preset ->
                 launch(Dispatchers.IO) {
                     val result = testSingleDohServer(preset, client)
                     completed[result.url] = result
 
-                    // Update UI immediately with this result
                     val snapshot = completed.values.toList()
                     val pending = allServers
                         .filter { p -> !completed.containsKey(p.url) }
@@ -732,7 +716,6 @@ class EditProfileViewModel @Inject constructor(
 
             jobs.joinAll()
 
-            // Clean up OkHttp on IO thread to avoid NetworkOnMainThreadException
             withContext(Dispatchers.IO) {
                 client.connectionPool.evictAll()
             }
@@ -748,9 +731,9 @@ class EditProfileViewModel @Inject constructor(
         return results.sortedWith(
             compareBy<DohTestResult> {
                 when {
-                    it.isSuccess -> 0   // Successful first
-                    it.error != null -> 1 // Failed second
-                    else -> 2            // Pending last
+                    it.isSuccess -> 0
+                    it.error != null -> 1
+                    else -> 2
                 }
             }.thenBy { it.latencyMs ?: Long.MAX_VALUE }
         )
@@ -796,7 +779,6 @@ class EditProfileViewModel @Inject constructor(
                 is UnknownHostException -> "DNS lookup failed"
                 is SSLException -> "TLS error"
                 else -> {
-                    // Clean up raw Java messages like "Failed to connect to /1.2.3.4:443"
                     val msg = e.message ?: "Connection failed"
                     if (msg.contains("/")) msg.substringAfterLast("/").let {
                         if (it.isBlank()) "Unreachable" else it
@@ -807,31 +789,20 @@ class EditProfileViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Build a minimal DNS query for an A record lookup.
-     * Wire format per RFC 1035.
-     */
     private fun buildDnsQuery(domain: String): ByteArray {
         val out = ByteArrayOutputStream()
-        // Transaction ID
         out.write(0x00); out.write(0x01)
-        // Flags: standard query, recursion desired
         out.write(0x01); out.write(0x00)
-        // Questions: 1
         out.write(0x00); out.write(0x01)
-        // Answer/Authority/Additional RRs: 0
         out.write(0x00); out.write(0x00)
         out.write(0x00); out.write(0x00)
         out.write(0x00); out.write(0x00)
-        // QNAME
         for (label in domain.split(".")) {
             out.write(label.length)
             out.write(label.toByteArray(Charsets.US_ASCII))
         }
-        out.write(0x00) // root label
-        // QTYPE: A (1)
+        out.write(0x00)
         out.write(0x00); out.write(0x01)
-        // QCLASS: IN (1)
         out.write(0x00); out.write(0x01)
         return out.toByteArray()
     }
@@ -840,10 +811,7 @@ class EditProfileViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isAutoDetecting = true)
             try {
-                val state = _uiState.value
                 val resolverIp = withContext(Dispatchers.IO) {
-                    // Both tunnel types need the ISP DNS server as resolver
-                    // to forward tunneled DNS queries to the authoritative server
                     getSystemDnsServer()
                 }
 
@@ -875,7 +843,6 @@ class EditProfileViewModel @Inject constructor(
     fun save() {
         val state = _uiState.value
 
-        // Validation
         var hasError = false
 
         if (state.name.isBlank()) {
@@ -883,6 +850,53 @@ class EditProfileViewModel @Inject constructor(
             hasError = true
         }
 
+        // ✅ Skip domain/resolver validation for sing-box protocols
+        if (state.isSingBox) {
+            // For sing-box, only name is required - server info comes from original profile
+            if (hasError) return
+
+            viewModelScope.launch {
+                _uiState.value = _uiState.value.copy(isSaving = true)
+
+                try {
+                    // Use original profile and just update the name
+                    val original = originalProfile
+                    if (original == null) {
+                        _uiState.value = _uiState.value.copy(
+                            isSaving = false,
+                            error = "Original profile not found"
+                        )
+                        return@launch
+                    }
+
+                    val profile = original.copy(
+                        name = state.name.trim(),
+                        sortOrder = state.sortOrder
+                    )
+
+                    val savedId = saveProfileUseCase(profile)
+                    setActiveProfileUseCase(savedId)
+
+                    val connState = connectionManager.connectionState.value
+                    val isVpnActive = connState is ConnectionState.Connected ||
+                            connState is ConnectionState.Connecting
+
+                    _uiState.value = _uiState.value.copy(
+                        isSaving = false,
+                        saveSuccess = true,
+                        showRestartVpnMessage = isVpnActive
+                    )
+                } catch (e: Exception) {
+                    _uiState.value = _uiState.value.copy(
+                        isSaving = false,
+                        error = e.message ?: "Failed to save profile"
+                    )
+                }
+            }
+            return
+        }
+
+        // Non-sing-box validation continues as before...
         if (state.tunnelType != TunnelType.DOH && state.tunnelType != TunnelType.SNOWFLAKE && state.domain.isBlank()) {
             _uiState.value = _uiState.value.copy(domainError = "Domain is required")
             hasError = true
@@ -894,7 +908,6 @@ class EditProfileViewModel @Inject constructor(
             }
         }
 
-        // DoH URL validation (DOH tunnel type or DNSTT with DoH transport)
         val needsDohUrl = state.tunnelType == TunnelType.DOH ||
                 (state.isDnsttBased && state.dnsTransport == DnsTransport.DOH)
         if (needsDohUrl) {
@@ -907,7 +920,6 @@ class EditProfileViewModel @Inject constructor(
             }
         }
 
-        // Resolver validation (SSH-only, DOH, Snowflake, NAIVE_SSH, and DNSTT with DoH transport don't need resolvers)
         val skipResolvers = state.tunnelType == TunnelType.SSH || state.tunnelType == TunnelType.DOH ||
                 state.tunnelType == TunnelType.SNOWFLAKE || state.tunnelType == TunnelType.NAIVE_SSH ||
                 (state.isDnsttBased && state.dnsTransport == DnsTransport.DOH)
@@ -924,7 +936,6 @@ class EditProfileViewModel @Inject constructor(
             }
         }
 
-        // DNSTT-specific validation (DNSTT and DNSTT+SSH)
         if (state.tunnelType == TunnelType.DNSTT || state.tunnelType == TunnelType.DNSTT_SSH) {
             val publicKeyError = validateDnsttPublicKey(state.dnsttPublicKey)
             if (publicKeyError != null) {
@@ -933,7 +944,6 @@ class EditProfileViewModel @Inject constructor(
             }
         }
 
-        // Tor bridge line validation (Custom bridge type requires non-empty lines)
         if (state.tunnelType == TunnelType.SNOWFLAKE && state.torBridgeType == TorBridgeType.CUSTOM) {
             if (state.torBridgeLines.isBlank()) {
                 _uiState.value = _uiState.value.copy(torBridgeLinesError = "Bridge lines are required")
@@ -941,7 +951,6 @@ class EditProfileViewModel @Inject constructor(
             }
         }
 
-        // NaiveProxy validation (NAIVE_SSH tunnel type)
         if (state.tunnelType == TunnelType.NAIVE_SSH) {
             val naivePort = state.naivePort.toIntOrNull()
             if (naivePort == null || naivePort !in 1..65535) {
@@ -958,7 +967,6 @@ class EditProfileViewModel @Inject constructor(
             }
         }
 
-        // SSH validation (SSH-only, DNSTT+SSH, Slipstream+SSH, and NAIVE_SSH tunnel types)
         if (state.tunnelType == TunnelType.SSH || state.tunnelType == TunnelType.DNSTT_SSH || state.tunnelType == TunnelType.SLIPSTREAM_SSH || state.tunnelType == TunnelType.NAIVE_SSH) {
             if (state.sshUsername.isBlank()) {
                 _uiState.value = _uiState.value.copy(sshUsernameError = "SSH username is required")
@@ -980,7 +988,6 @@ class EditProfileViewModel @Inject constructor(
             }
         }
 
-        // SSH port validation (SSH-only, DNSTT+SSH, Slipstream+SSH, and NAIVE_SSH)
         if (state.tunnelType == TunnelType.SSH || state.tunnelType == TunnelType.DNSTT_SSH || state.tunnelType == TunnelType.SLIPSTREAM_SSH || state.tunnelType == TunnelType.NAIVE_SSH) {
             val sshPort = state.sshPort.toIntOrNull()
             if (sshPort == null || sshPort !in 1..65535) {
@@ -1031,7 +1038,6 @@ class EditProfileViewModel @Inject constructor(
                 val savedId = saveProfileUseCase(profile)
                 setActiveProfileUseCase(savedId)
 
-                // Check if VPN is currently connected to this profile
                 val connState = connectionManager.connectionState.value
                 val isVpnActive = connState is ConnectionState.Connected ||
                         connState is ConnectionState.Connecting
@@ -1064,25 +1070,16 @@ class EditProfileViewModel @Inject constructor(
             }
     }
 
-    /**
-     * Validates domain format for DNSTT and Slipstream tunnel types.
-     * These require a proper DNS domain name (e.g., "t.example.com").
-     * SSH tunnel type allows IP addresses as the domain field is the SSH host.
-     * @return error message if invalid, null if valid
-     */
     private fun validateDomain(domain: String, tunnelType: TunnelType): String? {
         val isDnsTunnel = tunnelType == TunnelType.DNSTT || tunnelType == TunnelType.DNSTT_SSH ||
                 tunnelType == TunnelType.SLIPSTREAM || tunnelType == TunnelType.SLIPSTREAM_SSH
 
-        // SSH accepts hostnames and IPs — no DNS domain validation needed
         if (!isDnsTunnel) return null
 
-        // Must not be an IP address
         if (domain.all { it.isDigit() || it == '.' } && isValidIPv4(domain)) {
             return "Domain must be a hostname, not an IP address"
         }
 
-        // Must be a valid domain with at least 2 labels (e.g., "example.com")
         if (!isValidDomainName(domain)) {
             return "Invalid domain format"
         }
@@ -1095,11 +1092,6 @@ class EditProfileViewModel @Inject constructor(
         return null
     }
 
-    /**
-     * Validates DNSTT public key format.
-     * Noise protocol uses Curve25519 keys which are 32 bytes (64 hex characters).
-     * @return error message if invalid, null if valid
-     */
     private fun validateDnsttPublicKey(publicKey: String): String? {
         val trimmed = publicKey.trim()
 
@@ -1107,12 +1099,10 @@ class EditProfileViewModel @Inject constructor(
             return "Public key is required for DNSTT"
         }
 
-        // Check length: 32 bytes = 64 hex characters
         if (trimmed.length != 64) {
             return "Public key must be 64 hex characters (32 bytes), got ${trimmed.length}"
         }
 
-        // Check if all characters are valid hex
         if (!trimmed.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
             return "Public key must contain only hex characters (0-9, a-f)"
         }
@@ -1120,13 +1110,6 @@ class EditProfileViewModel @Inject constructor(
         return null
     }
 
-    /**
-     * Validates DNS resolver format.
-     * Expected format: "host:port" or "host" (port defaults to 53)
-     * Multiple resolvers can be comma-separated.
-     * Supports IPv4, IPv6, and domain names.
-     * @return error message if invalid, null if valid
-     */
     private fun validateResolvers(input: String): String? {
         val resolvers = input.split(",").map { it.trim() }.filter { it.isNotBlank() }
 
@@ -1152,18 +1135,15 @@ class EditProfileViewModel @Inject constructor(
         const val MAX_RESOLVERS = 8
         private const val BRIDGES_PER_TYPE = 2
 
-        // Moat API (Tor bridge distribution)
         private const val MOAT_HOST = "bridges.torproject.org"
         private const val MOAT_BASE_URL = "https://$MOAT_HOST/moat"
         private const val MOAT_BUILTIN_PATH = "circumvention/builtin"
         private const val MOAT_SETTINGS_PATH = "circumvention/settings"
-        private const val MOAT_FRONT_DOMAIN = "ajax.aspnetcdn.com"
         private val MOAT_FRONT_DOMAINS = listOf(
-            "ajax.aspnetcdn.com",       // Azure CDN
-            "cdn.jsdelivr.net",          // Fastly CDN
+            "ajax.aspnetcdn.com",
+            "cdn.jsdelivr.net",
         )
 
-        // Built-in obfs4 bridges (from Tor Project's /circumvention/builtin API)
         val DEFAULT_OBFS4_BRIDGES = """
             obfs4 51.222.13.177:80 5EDAC3B810E12B01F6FD8050D2FD3E277B289A08 cert=2uplIpLQ0q9+0qMFrK5pkaYRDOe460LL9WHBvatgkuRr/SL31wBOEupaMMJ6koRE6Ld0ew iat-mode=0
             obfs4 37.218.245.14:38224 D9A82D2F9C2F65A18407B1D2B764F130847F8B5D cert=bjRaMrr1BRiAW8IE9U5z27fQaYgOhX1UCmOpg2pFpoMvo6ZgQMzLsaTzzQNTlm7hNcb+Sg iat-mode=0
@@ -1174,15 +1154,10 @@ class EditProfileViewModel @Inject constructor(
             obfs4 212.83.43.74:443 39562501228A4D5E27FCA4C0C81A01EE23AE3EE4 cert=PBwr+S8JTVZo6MPdHnkTwXJPILWADLqfMGoVvhZClMq/Urndyd42BwX9YFJHZnBB3H0XCw iat-mode=1
         """.trimIndent()
 
-        // Built-in meek_lite bridge (CDN77 domain fronting, from Tor Browser defaults — Bug 41508)
         const val DEFAULT_MEEK_BRIDGE = "meek_lite 192.0.2.20:80 url=https://1603026938.rsc.cdn77.org front=www.phpmyadmin.net utls=HelloRandomizedALPN"
 
-        /**
-         * Detect the bridge type from stored bridge lines (for loading existing profiles).
-         */
         fun detectBridgeType(torBridgeLines: String): TorBridgeType {
             if (torBridgeLines.isBlank()) return TorBridgeType.SNOWFLAKE
-            // Check sentinel values first (all-caps single words)
             val trimmed = torBridgeLines.trim()
             return when (trimmed) {
                 "DIRECT" -> TorBridgeType.DIRECT
@@ -1202,7 +1177,6 @@ class EditProfileViewModel @Inject constructor(
             return "Resolver cannot be empty"
         }
 
-        // Handle IPv6 with port: [2001:db8::1]:53
         if (trimmed.startsWith("[")) {
             val closeBracket = trimmed.indexOf("]")
             if (closeBracket == -1) {
@@ -1214,7 +1188,6 @@ class EditProfileViewModel @Inject constructor(
                 return "Invalid IPv6 address: '$ipv6'"
             }
 
-            // Check for port after ]
             if (closeBracket < trimmed.length - 1) {
                 if (trimmed[closeBracket + 1] != ':') {
                     return "Invalid format: expected ':' after ']' in '$trimmed'"
@@ -1227,17 +1200,14 @@ class EditProfileViewModel @Inject constructor(
             return null
         }
 
-        // Count colons to distinguish IPv4:port from IPv6
         val colonCount = trimmed.count { it == ':' }
 
         when {
-            // IPv6 without port (multiple colons)
             colonCount > 1 -> {
                 if (!isValidIPv6(trimmed)) {
                     return "Invalid IPv6 address: '$trimmed'"
                 }
             }
-            // IPv4:port or host:port (single colon)
             colonCount == 1 -> {
                 val parts = trimmed.split(":")
                 val host = parts[0]
@@ -1249,7 +1219,6 @@ class EditProfileViewModel @Inject constructor(
                 val portError = validatePort(portStr, trimmed)
                 if (portError != null) return portError
             }
-            // No colon - just host/IP (port defaults to 53)
             else -> {
                 val hostError = validateHost(trimmed)
                 if (hostError != null) return hostError
@@ -1264,7 +1233,6 @@ class EditProfileViewModel @Inject constructor(
             return "Host cannot be empty"
         }
 
-        // Check if it's an IPv4 address (all digits and dots)
         if (host.all { it.isDigit() || it == '.' }) {
             if (!isValidIPv4(host)) {
                 return "Invalid IPv4 address: '$host'"
@@ -1272,12 +1240,10 @@ class EditProfileViewModel @Inject constructor(
             return null
         }
 
-        // Starts with digit + has 3 dots = IPv4 attempt with trailing garbage (e.g. "1.1.1.1abc")
         if (host.first().isDigit() && host.count { it == '.' } == 3) {
             return "Invalid IPv4 address: '$host'"
         }
 
-        // Otherwise treat as domain name - basic validation
         if (!isValidDomainName(host)) {
             return "Invalid host: '$host'"
         }
@@ -1307,13 +1273,11 @@ class EditProfileViewModel @Inject constructor(
     }
 
     private fun isValidIPv6(ip: String): Boolean {
-        // Basic IPv6 validation
         val trimmed = ip.trim()
 
-        // Handle :: shorthand
         if (trimmed.contains("::")) {
             val parts = trimmed.split("::")
-            if (parts.size > 2) return false // Only one :: allowed
+            if (parts.size > 2) return false
 
             val left = if (parts[0].isEmpty()) emptyList() else parts[0].split(":")
             val right = if (parts.size < 2 || parts[1].isEmpty()) emptyList() else parts[1].split(":")
@@ -1323,7 +1287,6 @@ class EditProfileViewModel @Inject constructor(
             return (left + right).all { isValidIPv6Segment(it) }
         }
 
-        // Full IPv6 address
         val segments = trimmed.split(":")
         if (segments.size != 8) return false
 
@@ -1336,7 +1299,6 @@ class EditProfileViewModel @Inject constructor(
     }
 
     private fun isValidDomainName(domain: String): Boolean {
-        // Basic domain name validation
         if (domain.isEmpty() || domain.length > 253) return false
 
         val labels = domain.split(".")
