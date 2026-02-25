@@ -210,7 +210,7 @@ object SingBoxBridge {
             put("servers", JSONArray().apply {
                 put(JSONObject().apply {
                     put("tag", "remote")
-                    put("address", "https://1.1.1.1/dns-query")
+                    put("address", "1.1.1.1")
                     put("detour", "proxy")
                 })
                 put(JSONObject().apply {
