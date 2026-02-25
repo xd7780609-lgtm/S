@@ -228,6 +228,7 @@ object SingBoxBridge {
                 put("tag", "socks-in")
                 put("listen", listenHost)
                 put("listen_port", listenPort)
+                put("udp", true)
             })
         })
 
