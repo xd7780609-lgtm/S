@@ -79,29 +79,49 @@ fun ScannerScreen(
     val activity = context.findActivity()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // ✅ FIX 1: VPN Permission handling (مثل MainScreen)
+    // ✅ FIX 1: VPN Permission handling
     var pendingConnectProfile by remember { mutableStateOf<ServerProfile?>(null) }
+    var pendingConnectMode by remember { mutableStateOf("autoScan") }
     
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             pendingConnectProfile?.let { profile ->
-                viewModel.connectWithAutoScan(profile)
+                when (pendingConnectMode) {
+                    "bestIp" -> viewModel.connectWithBestIp(profile)
+                    else -> viewModel.connectWithAutoScan(profile)
+                }
             }
         }
         pendingConnectProfile = null
+        pendingConnectMode = "autoScan"
     }
 
-    // ✅ Helper function برای connect با چک کردن VPN permission
+    // ✅ Helper: connect با AutoScan + چک VPN permission
     fun connectWithPermissionCheck(profile: ServerProfile) {
         if (activity != null) {
             val vpnIntent = VpnService.prepare(activity)
             if (vpnIntent != null) {
                 pendingConnectProfile = profile
+                pendingConnectMode = "autoScan"
                 vpnPermissionLauncher.launch(vpnIntent)
             } else {
                 viewModel.connectWithAutoScan(profile)
+            }
+        }
+    }
+
+    // ✅ Helper: connect با Best IP + چک VPN permission
+    fun connectBestIpWithPermissionCheck(profile: ServerProfile) {
+        if (activity != null) {
+            val vpnIntent = VpnService.prepare(activity)
+            if (vpnIntent != null) {
+                pendingConnectProfile = profile
+                pendingConnectMode = "bestIp"
+                vpnPermissionLauncher.launch(vpnIntent)
+            } else {
+                viewModel.connectWithBestIp(profile)
             }
         }
     }
@@ -216,7 +236,7 @@ fun ScannerScreen(
                                 Text("${result.latency}ms", style = MaterialTheme.typography.bodySmall)
                             }
                             selectedProfile?.let { profile ->
-                                Button(onClick = { connectWithPermissionCheck(profile) }) {
+                                Button(onClick = { connectBestIpWithPermissionCheck(profile) }) {
                                     Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text("Connect")
@@ -266,9 +286,9 @@ fun ScannerScreen(
                                 }
                             },
                             onScan = { viewModel.startScan(profile) },
-                            onConnect = { connectWithPermissionCheck(profile) },  // ✅ استفاده از helper
+                            onConnect = { connectWithPermissionCheck(profile) },
                             onDisconnect = { viewModel.disconnect() },
-                            onEdit = { showEditDialog = profile },  // ✅ نمایش Edit Dialog
+                            onEdit = { showEditDialog = profile },
                             onDelete = { viewModel.deleteProfile(profile) }
                         )
                     }
@@ -281,7 +301,6 @@ fun ScannerScreen(
         ScannerSettingsDialog(settings = scannerSettings, onDismiss = { viewModel.hideSettings() }, onSave = { viewModel.updateSettings(it) })
     }
 
-    // ✅ FIX 3: نمایش Details یا Edit dialog
     showDetails?.let { profile ->
         ProfileDetailsDialog(
             profile = profile, 
@@ -291,7 +310,6 @@ fun ScannerScreen(
         )
     }
 
-    // ✅ FIX 3: Edit Dialog جدید
     showEditDialog?.let { profile ->
         ProfileEditDialog(
             profile = profile,
@@ -347,9 +365,7 @@ fun ScannerProfileCard(
                 .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Profile info
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // Name + Protocol badge
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = profile.name,
@@ -381,7 +397,6 @@ fun ScannerProfileCard(
                     }
                 }
                 
-                // Address + Ping result
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "$address:$port",
@@ -392,7 +407,6 @@ fun ScannerProfileCard(
                         modifier = Modifier.weight(1f)
                     )
                     
-                    // Ping badge
                     when {
                         isPinging -> {
                             Spacer(modifier = Modifier.width(8.dp))
@@ -415,7 +429,6 @@ fun ScannerProfileCard(
                     }
                 }
                 
-                // Last scanned IP
                 if (profile.lastScannedIp.isNotBlank()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(12.dp), tint = ConnectedGreen)
@@ -425,9 +438,7 @@ fun ScannerProfileCard(
                 }
             }
 
-            // Action buttons
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Scan button
                 IconButton(onClick = onScan, enabled = !isScanning, modifier = Modifier.size(36.dp)) {
                     if (isScanning) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -436,7 +447,6 @@ fun ScannerProfileCard(
                     }
                 }
                 
-                // More menu
                 Box {
                     IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -464,7 +474,6 @@ fun ScannerProfileCard(
             }
         }
         
-        // Connect button row
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -634,7 +643,6 @@ fun ProfileDetailsDialog(profile: ServerProfile, address: String, port: Int, onD
     )
 }
 
-// ✅ FIX 3: دیالوگ ویرایش جدید
 @Composable
 fun ProfileEditDialog(
     profile: ServerProfile,
@@ -674,7 +682,6 @@ fun ProfileEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 
-                // نمایش نوع پروتکل (غیر قابل ویرایش)
                 Text(
                     text = "Protocol: ${profile.tunnelType.displayName}",
                     style = MaterialTheme.typography.bodySmall,
