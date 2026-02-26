@@ -1,5 +1,11 @@
 package app.slipnet.presentation.scanner
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.net.VpnService
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -21,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -35,6 +42,15 @@ import app.slipnet.tunnel.CdnScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private fun Context.findActivity(): Activity? {
+    var context = this
+    while (context is ContextWrapper) {
+        if (context is Activity) return context
+        context = context.baseContext
+    }
+    return null
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +74,40 @@ fun ScannerScreen(
     var pingResults by remember { mutableStateOf<Map<Long, String?>>(emptyMap()) }
     var pingingIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     val scope = rememberCoroutineScope()
+    
+    val context = LocalContext.current
+    val activity = context.findActivity()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // ✅ FIX 1: VPN Permission handling (مثل MainScreen)
+    var pendingConnectProfile by remember { mutableStateOf<ServerProfile?>(null) }
+    
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            pendingConnectProfile?.let { profile ->
+                viewModel.connectWithAutoScan(profile)
+            }
+        }
+        pendingConnectProfile = null
+    }
+
+    // ✅ Helper function برای connect با چک کردن VPN permission
+    fun connectWithPermissionCheck(profile: ServerProfile) {
+        if (activity != null) {
+            val vpnIntent = VpnService.prepare(activity)
+            if (vpnIntent != null) {
+                pendingConnectProfile = profile
+                vpnPermissionLauncher.launch(vpnIntent)
+            } else {
+                viewModel.connectWithAutoScan(profile)
+            }
+        }
+    }
+
+    // ✅ FIX 3: Edit dialog state
+    var showEditDialog by remember { mutableStateOf<ServerProfile?>(null) }
 
     Scaffold(
         topBar = {
@@ -110,7 +160,8 @@ fun ScannerScreen(
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Import Config")
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -165,7 +216,7 @@ fun ScannerScreen(
                                 Text("${result.latency}ms", style = MaterialTheme.typography.bodySmall)
                             }
                             selectedProfile?.let { profile ->
-                                Button(onClick = { viewModel.connectWithBestIp(profile) }) {
+                                Button(onClick = { connectWithPermissionCheck(profile) }) {
                                     Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text("Connect")
@@ -215,9 +266,9 @@ fun ScannerScreen(
                                 }
                             },
                             onScan = { viewModel.startScan(profile) },
-                            onConnect = { viewModel.connectWithAutoScan(profile) },
+                            onConnect = { connectWithPermissionCheck(profile) },  // ✅ استفاده از helper
                             onDisconnect = { viewModel.disconnect() },
-                            onEdit = { viewModel.showDetails(profile) },
+                            onEdit = { showEditDialog = profile },  // ✅ نمایش Edit Dialog
                             onDelete = { viewModel.deleteProfile(profile) }
                         )
                     }
@@ -230,8 +281,31 @@ fun ScannerScreen(
         ScannerSettingsDialog(settings = scannerSettings, onDismiss = { viewModel.hideSettings() }, onSave = { viewModel.updateSettings(it) })
     }
 
+    // ✅ FIX 3: نمایش Details یا Edit dialog
     showDetails?.let { profile ->
-        ProfileDetailsDialog(profile = profile, address = viewModel.getProfileAddress(profile), port = viewModel.getProfilePort(profile), onDismiss = { viewModel.hideDetails() })
+        ProfileDetailsDialog(
+            profile = profile, 
+            address = viewModel.getProfileAddress(profile), 
+            port = viewModel.getProfilePort(profile), 
+            onDismiss = { viewModel.hideDetails() }
+        )
+    }
+
+    // ✅ FIX 3: Edit Dialog جدید
+    showEditDialog?.let { profile ->
+        ProfileEditDialog(
+            profile = profile,
+            currentAddress = viewModel.getProfileAddress(profile),
+            currentPort = viewModel.getProfilePort(profile),
+            onDismiss = { showEditDialog = null },
+            onSave = { name, address, port ->
+                viewModel.updateProfile(profile, name, address, port)
+                showEditDialog = null
+                scope.launch {
+                    snackbarHostState.showSnackbar("Profile updated")
+                }
+            }
+        )
     }
 }
 
@@ -557,6 +631,67 @@ fun ProfileDetailsDialog(profile: ServerProfile, address: String, port: Int, onD
             }
         },
         confirmButton = { Button(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+// ✅ FIX 3: دیالوگ ویرایش جدید
+@Composable
+fun ProfileEditDialog(
+    profile: ServerProfile,
+    currentAddress: String,
+    currentPort: Int,
+    onDismiss: () -> Unit,
+    onSave: (name: String, address: String, port: Int) -> Unit
+) {
+    var name by remember { mutableStateOf(profile.name) }
+    var address by remember { mutableStateOf(currentAddress) }
+    var portText by remember { mutableStateOf(currentPort.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Config") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("IP / Domain") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = { portText = it.filter { c -> c.isDigit() } },
+                    label = { Text("Port") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                // نمایش نوع پروتکل (غیر قابل ویرایش)
+                Text(
+                    text = "Protocol: ${profile.tunnelType.displayName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val port = portText.toIntOrNull() ?: currentPort
+                    onSave(name, address, port)
+                },
+                enabled = name.isNotBlank() && address.isNotBlank() && portText.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 

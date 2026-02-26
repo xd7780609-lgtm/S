@@ -390,6 +390,53 @@ class MainViewModel @Inject constructor(
             }
         }
     }
+    
+        // ✅ FIX 2: پشتیبانی از لینک ساب در صفحه اصلی
+    fun importSubscription(url: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                    
+                    val request = okhttp3.Request.Builder().url(url).build()
+                    val response = client.newCall(request).execute()
+                    
+                    if (!response.isSuccessful) {
+                        return@withContext Pair(0, 1)
+                    }
+                    val body = response.body?.string() ?: return@withContext Pair(0, 1)
+                    
+                    val profiles = app.slipnet.tunnel.SingBoxBridge.parseSingBoxConfig(body)
+                    var success = 0
+                    var fail = 0
+                    
+                    for (profile in profiles) {
+                        try {
+                            // صفحه اصلی: isScannerProfile = false (پیش‌فرض)
+                            saveProfileUseCase(profile)
+                            success++
+                        } catch (e: Exception) { fail++ }
+                    }
+                    Pair(success, fail)
+                }
+                
+                val (success, fail) = result
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = if (success > 0) null else "Failed to import subscription"
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = "Import failed: ${e.message}"
+                )
+            }
+        }
+    }
 
     fun confirmImport() {
         val preview = _uiState.value.importPreview ?: return

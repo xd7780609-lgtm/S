@@ -167,7 +167,6 @@ fun MainScreen(
     var pendingProfile by remember { mutableStateOf<ServerProfile?>(null) }
 
     // Dialog/sheet state
-    var showShareDialog by remember { mutableStateOf(false) }
     var showLogSheet by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
@@ -308,7 +307,7 @@ fun MainScreen(
                             Icon(Icons.Default.BugReport, contentDescription = "Debug Logs")
                         }
                     }
-                    IconButton(onClick = { showShareDialog = true }) {
+                    IconButton(onClick = { shareApk(context) }) {
                         Icon(Icons.Default.Share, contentDescription = "Share App")
                     }
                     IconButton(onClick = onNavigateToSettings) {
@@ -619,37 +618,6 @@ fun MainScreen(
     // Debug log sheet
     if (showLogSheet) {
         DebugLogSheet(onDismiss = { showLogSheet = false })
-    }
-
-    // Share dialog
-    if (showShareDialog) {
-        AlertDialog(
-            onDismissRequest = { showShareDialog = false },
-            title = { Text("Share SlipNet") },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "How would you like to share the app?",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    TextButton(
-                        onClick = { showShareDialog = false; shareApk(context) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("APK File") }
-                    TextButton(
-                        onClick = { showShareDialog = false; shareGithubLink(context) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("GitHub Link") }
-                    TextButton(
-                        onClick = { showShareDialog = false; shareTelegramLink(context) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Telegram Channel") }
-                }
-            },
-            confirmButton = {}
-        )
     }
 
     // Delete confirmation dialog

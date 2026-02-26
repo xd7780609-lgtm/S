@@ -1,0 +1,6 @@
+cd /storage/emulated/0/SlipNet-1.9.0
+
+git status
+git add -A
+git commit -m "Sync local source to GitHub"
+git push

@@ -27,7 +27,6 @@ class ScannerViewModel @Inject constructor(
     private val connectionManager: VpnConnectionManager
 ) : ViewModel() {
 
-    // فقط پروفایل‌هایی که مخصوص اسکنر هستند رو نشون بده
     val connectionState = connectionManager.connectionState
 
     val scannerProfiles: StateFlow<List<ServerProfile>> = profileRepository.getAllProfiles()
@@ -58,7 +57,6 @@ class ScannerViewModel @Inject constructor(
                 name = if (profile.name.isBlank()) "Scanner Config" else profile.name
             )
             viewModelScope.launch {
-                // اصلاح شده: استفاده از saveProfile به جای insertProfile
                 profileRepository.saveProfile(scannerProfile)
             }
             return true
@@ -66,6 +64,7 @@ class ScannerViewModel @Inject constructor(
         return false
     }
 
+    // ✅ FIX 2: اضافه کردن isScannerProfile = true
     suspend fun importSubscription(url: String): Pair<Int, Int> {
         return withContext(Dispatchers.IO) {
             try {
@@ -86,7 +85,9 @@ class ScannerViewModel @Inject constructor(
 
                 for (profile in profiles) {
                     try {
-                        profileRepository.saveProfile(profile)
+                        // ✅ اضافه کردن isScannerProfile = true
+                        val scannerProfile = profile.copy(isScannerProfile = true)
+                        profileRepository.saveProfile(scannerProfile)
                         success++
                     } catch (e: Exception) { fail++ }
                 }
@@ -118,7 +119,6 @@ class ScannerViewModel @Inject constructor(
         }
     }
 
-    // منطق هوشمند: پینگ بگیر -> اگر بد بود اسکن کن -> وصل شو
     fun connectWithAutoScan(profile: ServerProfile) {
         viewModelScope.launch {
             _selectedProfile.value = profile
@@ -127,18 +127,12 @@ class ScannerViewModel @Inject constructor(
             val port = getProfilePort(profile)
             val settings = _scannerSettings.value
             
-            // ۱. تست پینگ آی‌پی فعلی
-            // اگر پینگ فعلی زیر MaxLatency باشه، نیازی به اسکن نیست
             val isCurrentIpGood = CdnScanner.testCurrentIp(currentIp, port, settings.maxLatency)
 
             if (isCurrentIpGood) {
-                // آی‌پی خوبه، مستقیم وصل شو
                 connectionManager.connect(profile)
             } else {
-                // ۲. آی‌پی بده، شروع اسکن برای پیدا کردن آی‌پی تمیز
                 val ranges = CdnScanner.loadRanges(context, settings.rangeSource)
-
-                // تابع autoFindBestIp خودش اسکن میکنه و بهترین رو برمیگردونه
                 val newBestIp = CdnScanner.autoFindBestIp(
                     currentIp = currentIp,
                     port = port,
@@ -147,7 +141,6 @@ class ScannerViewModel @Inject constructor(
                 )
 
                 if (newBestIp != null) {
-                    // آی‌پی جدید پیدا شد، پروفایل رو آپدیت کن و وصل شو
                     val updated = profile.copy(
                         lastScannedIp = newBestIp,
                         lastScanTime = System.currentTimeMillis()
@@ -155,7 +148,6 @@ class ScannerViewModel @Inject constructor(
                     profileRepository.updateProfile(updated)
                     connectionManager.connect(updated)
                 } else {
-                    // هیچ آی‌پی پیدا نشد، با همون قبلی زورکی وصل شو
                     connectionManager.connect(profile)
                 }
             }
@@ -174,6 +166,40 @@ class ScannerViewModel @Inject constructor(
     fun hideSettings() { _showSettingsDialog.value = false }
     fun showDetails(profile: ServerProfile) { _showDetailsDialog.value = profile }
     fun hideDetails() { _showDetailsDialog.value = null }
+
+    // ✅ FIX 3: تابع جدید برای ویرایش پروفایل
+    fun updateProfile(profile: ServerProfile, name: String, address: String, port: Int) {
+        viewModelScope.launch {
+            val updated = when (profile.tunnelType) {
+                TunnelType.VLESS -> profile.copy(
+                    name = name,
+                    vlessAddress = address,
+                    vlessPort = port,
+                    lastScannedIp = if (address != profile.vlessAddress) "" else profile.lastScannedIp
+                )
+                TunnelType.TROJAN -> profile.copy(
+                    name = name,
+                    trojanAddress = address,
+                    trojanPort = port,
+                    lastScannedIp = if (address != profile.trojanAddress) "" else profile.lastScannedIp
+                )
+                TunnelType.HYSTERIA2 -> profile.copy(
+                    name = name,
+                    hy2Address = address,
+                    hy2Port = port,
+                    lastScannedIp = if (address != profile.hy2Address) "" else profile.lastScannedIp
+                )
+                TunnelType.SHADOWSOCKS -> profile.copy(
+                    name = name,
+                    ssAddress = address,
+                    ssPort = port,
+                    lastScannedIp = if (address != profile.ssAddress) "" else profile.lastScannedIp
+                )
+                else -> profile.copy(name = name, domain = address)
+            }
+            profileRepository.updateProfile(updated)
+        }
+    }
 
     fun getProfileAddress(profile: ServerProfile): String {
         return when (profile.tunnelType) {
